@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pitazo Clubs</title>
+<script>
+  // GitHub Pages muestra esta página para cualquier dirección que no existe.
+  // pitazoclubs.com/<club>/... (o creamix-ds.github.io/Pitazoclubs/<club>/...) → abre ese club con ?c=<club>.
+  // Si el club no existe, la app muestra el aviso con el link a todos los clubes.
+  (function () {
+    var partes = location.pathname.split('/').filter(Boolean);
+    var enGithub = /\.github\.io$/.test(location.hostname);
+    var raiz = enGithub && partes.length ? '/' + partes.shift() + '/' : '/';
+    var club = (partes[0] || '').replace(/[^a-z0-9-]/gi, '').toLowerCase();
+    location.replace(raiz + (club ? '?c=' + club : '') + location.hash);
+  })();
+</script>
+</head>
+<body><p><a href="/">Ir a Pitazo Clubs</a></p></body>
+</html>

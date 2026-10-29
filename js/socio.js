@@ -1,4 +1,4 @@
-/* Pitazo Club — portal del socio: carnet digital con QR, estado de cuenta y pago. */
+/* Pitazo Clubs — portal del socio: carnet digital con QR, estado de cuenta y pago. */
 window.PC = window.PC || {};
 (function () {
   'use strict';
@@ -119,7 +119,7 @@ window.PC = window.PC || {};
         <div class="pasos">
           <div class="paso"><div>
             <b>Pagale directo al club</b>
-            <p class="chico" style="margin:2px 0 10px">La plata va a la cuenta del club. Pitazo Club no cobra comisión.</p>
+            <p class="chico" style="margin:2px 0 10px">La plata va a la cuenta del club. Pitazo Clubs no cobra comisión.</p>
             ${cb.mp_link ? `<a class="boton boton--ancho" href="${e(cb.mp_link)}" target="_blank" rel="noopener" style="margin-bottom:10px;background:#009EE3">Pagar con Mercado Pago</a>` : ''}
             ${hayCuenta ? `${cb.alias ? datoCobro('Alias', cb.alias) : ''}${cb.cbu ? datoCobro('CBU / CVU', cb.cbu) : ''}
               <p class="chico" style="margin:4px 0 0">${e([cb.titular, cb.banco, cb.cuit ? 'CUIT ' + cb.cuit : ''].filter(Boolean).join(' · '))}</p>` : ''}

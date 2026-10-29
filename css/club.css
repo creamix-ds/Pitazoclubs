@@ -376,3 +376,8 @@ body.en-panel .cabeza, body.en-panel .pie { display: none; }
 .login .tarjeta { width: min(420px, 100%); text-align: center; }
 .color-fila { display: flex; gap: 10px; align-items: center; }
 .color-fila input[type=color] { width: 54px; height: 44px; padding: 2px; border-radius: 8px; border: 1.5px solid #D5D1CB; }
+
+/* Portada de Pitazo Clubs: la banda va a la derecha para no pisar el título */
+body.en-portada .hero::before { inset: -40% 6% -40% auto; width: 90px; }
+body.en-portada .hero::after { background: linear-gradient(90deg, var(--c1) 0%, var(--c1) 72%, transparent 92%); }
+@media (max-width: 860px) { body.en-portada .hero::before { inset: -40% -50px -40% auto; } }

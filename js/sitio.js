@@ -1,4 +1,4 @@
-/* Pitazo Club — web pública del club. */
+/* Pitazo Clubs — web pública del club. */
 window.PC = window.PC || {};
 (function () {
   'use strict';

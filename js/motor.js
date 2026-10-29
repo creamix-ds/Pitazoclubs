@@ -1,4 +1,4 @@
-/* Pitazo Club — motor.
+/* Pitazo Clubs — motor.
  * La misma lógica corre en el navegador (modo demo) y en Apps Script (Code.gs se arma
  * pegando este archivo + backend/base.gs). No usa nada del navegador ni de Google:
  * recibe un "store" con rows(t), insert(t, fila), update(t, fila), remove(t, id).
@@ -226,7 +226,7 @@ var MOTOR = (function () {
 
   // ---------- Pagos ----------
   // El dinero va directo a la cuenta del club (alias/CBU o Mercado Pago del club).
-  // Pitazo Club solo registra el pago: lo carga el tesorero o lo informa el socio con su comprobante.
+  // Pitazo Clubs solo registra el pago: lo carga el tesorero o lo informa el socio con su comprobante.
   function registrarPago(store, d, usuario) {
     var socio = porId(store, 'Socios', d.socio_id);
     if (!socio) throw err('Elegí el socio.');

@@ -1,9 +1,9 @@
 /**
- * Pitazo Club — API (Apps Script). Separada de Pitazo Final: tiene su propia planilla.
+ * Pitazo Clubs — API (Apps Script). Separada de Pitazo Final: tiene su propia planilla.
  * De Pitazo Final solo se leen datos públicos, desde la web (no desde acá).
  *
  * Instalación (una sola vez):
- *  1. Creá una planilla nueva en Drive llamada "Pitazo Club" > Extensiones > Apps Script.
+ *  1. Creá una planilla nueva en Drive llamada "Pitazo Clubs" > Extensiones > Apps Script.
  *  2. Pegá TODO Code.gs (motor + este archivo) y guardá.
  *  3. Completá GOOGLE_CLIENT_ID abajo (el mismo que va en js/config.js).
  *  4. Ejecutá la función crearPirovano() una vez y aceptá los permisos.
@@ -19,7 +19,8 @@
  * solo tiene la pestaña Clubes: slug | nombre | planilla_id | activo.
  *
  * GET  ?r=publico&c=pirovano                       datos públicos de la web del club
- * GET  ?r=ping                                     {"ok":true,"servicio":"Pitazo Club"}
+ * GET  ?r=clubes                                  lista para la portada de Pitazo Clubs
+ * GET  ?r=ping                                     {"ok":true,"servicio":"Pitazo Clubs"}
  * POST (texto JSON) {accion, club, ...}:
  *   solicitud {datos}                               formulario "Asociate"
  *   socio_ingresar {dni, pin}  -> {token, vista}    carnet digital
@@ -31,7 +32,7 @@
  */
 
 const GOOGLE_CLIENT_ID = '';          // ← pegá acá el ID de cliente OAuth (termina en .apps.googleusercontent.com)
-const CARPETA_ARCHIVOS = 'Pitazo Club - archivos';
+const CARPETA_ARCHIVOS = 'Pitazo Clubs - archivos';
 const SOCIO_DIAS = 60;                // cuánto dura la sesión del socio en el celular
 
 // Qué puede hacer cada rol del panel (columna rol de la pestaña Usuarios).
@@ -128,7 +129,10 @@ function tablas_(st, conPin) {
 function doGet(e) {
   try {
     const p = e.parameter || {};
-    if (p.r === 'ping' || !p.r) return json_({ ok: true, servicio: 'Pitazo Club' });
+    if (p.r === 'ping' || !p.r) return json_({ ok: true, servicio: 'Pitazo Clubs' });
+    if (p.r === 'clubes') {  // portada de Pitazo Clubs
+      return json_({ ok: true, data: clubes_().filter(c => String(c.activo || 'SI') !== 'NO').map(c => ({ slug: c.slug, nombre: c.nombre, ciudad: c.ciudad || '', escudo: c.escudo || '', color1: c.color1 || '' })) });
+    }
     if (p.r === 'publico') {
       const club = clubPorSlug_(p.c);
       const cache = CacheService.getScriptCache(), k = 'pub_' + club.slug + '_' + version_(club.slug);
@@ -340,9 +344,9 @@ function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).se
 function crearClub(datos) {
   if (!datos || !datos.slug) throw new Error('Falta el slug (la palabra que va en ?c=...).');
   let cl = central_().getSheetByName('Clubes');
-  if (!cl) { cl = central_().insertSheet('Clubes'); cl.appendRow(['slug', 'nombre', 'planilla_id', 'activo']); cl.setFrozenRows(1); }
+  if (!cl) { cl = central_().insertSheet('Clubes'); cl.appendRow(['slug', 'nombre', 'planilla_id', 'activo', 'ciudad', 'escudo', 'color1']); cl.setFrozenRows(1); }
   if (clubes_().some(c => String(c.slug).toLowerCase() === datos.slug.toLowerCase())) throw new Error('Ya existe un club con slug ' + datos.slug);
-  const ss = SpreadsheetApp.create('Pitazo Club - ' + datos.nombre);
+  const ss = SpreadsheetApp.create('Pitazo Clubs - ' + datos.nombre);
   Object.keys(MOTOR.TABLAS).forEach((t, i) => {
     const sh = i === 0 ? ss.getSheets()[0].setName(t) : ss.insertSheet(t);
     sh.getRange(1, 1, 1, MOTOR.TABLAS[t].length).setValues([MOTOR.TABLAS[t]]).setFontWeight('bold');
@@ -353,7 +357,7 @@ function crearClub(datos) {
       if (j >= 0) sh.getRange(2, j + 1, 999, 1).setNumberFormat('@');
     });
   });
-  // Mover a la carpeta de Pitazo Club.
+  // Mover a la carpeta de Pitazo Clubs.
   try { const f = DriveApp.getFileById(ss.getId()); carpeta_(DriveApp.getRootFolder(), CARPETA_ARCHIVOS).addFile(f); DriveApp.getRootFolder().removeFile(f); } catch (err) {}
   const s = store_(ss.getId());
   const cfg = {
@@ -365,7 +369,7 @@ function crearClub(datos) {
   [['Activo', 8000, 'Mayores de 18.'], ['Cadete', 5000, 'Menores de 18.'], ['Grupo familiar', 15000, 'Titular + familia que vive en la misma casa.']]
     .forEach((c, i) => MOTOR.guardar(s, 'Categorias', { nombre: c[0], monto: c[1], descripcion: c[2], orden: i + 1 }));
   if (datos.admin_email) s.insert('Usuarios', { email: datos.admin_email.toLowerCase(), nombre: '', rol: 'admin', activo: 'SI' });
-  cl.appendRow([datos.slug.toLowerCase(), datos.nombre, ss.getId(), 'SI']);
+  cl.appendRow([datos.slug.toLowerCase(), datos.nombre, ss.getId(), 'SI', datos.ciudad || '', datos.escudo || '', datos.color1 || '']);
   return ss.getUrl();
 }
 

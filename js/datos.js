@@ -1,6 +1,6 @@
-/* Pitazo Club — datos.
+/* Pitazo Clubs — datos.
  *  - DB: datos propios del club (socios, cuotas, pagos, noticias...). Modo demo (este
- *    navegador) o modo conectado (Apps Script de Pitazo Club, con su propia planilla).
+ *    navegador) o modo conectado (Apps Script de Pitazo Clubs, con su propia planilla).
  *  - PZ: datos deportivos leídos de la API pública de Pitazo Final (solo lectura).
  */
 window.PC = window.PC || {};
@@ -8,7 +8,13 @@ window.PC = window.PC || {};
   'use strict';
   const CFG = window.CONFIG, M = window.MOTOR;
   const params = new URLSearchParams(location.search);
-  const SLUG = (params.get('c') || CFG.CLUB || 'demo').toLowerCase();
+  // Raíz del sitio (donde están js/, css/, data/). Sirve igual en creamix-ds.github.io/Pitazoclubs/
+  // y en un dominio propio (pitazoclubs.com/).
+  const RAIZ = new URL('../', (document.currentScript && document.currentScript.src) || location.href).href;
+  // Club: la carpeta de la dirección (pitazoclubs.com/pirovano/) o ?c=pirovano. En la raíz no hay club.
+  const carpeta = decodeURIComponent(location.pathname.slice(new URL(RAIZ).pathname.length).split('/')[0] || '');
+  const SLUG = (params.get('c') || (carpeta && !/\.html?$/i.test(carpeta) ? carpeta : '') || CFG.CLUB || '').toLowerCase();
+  PC.RAIZ = RAIZ; PC.SLUG = SLUG;
   const DEMO = !CFG.API_URL;
 
   // ---------- utilidades de la interfaz ----------
@@ -79,7 +85,8 @@ window.PC = window.PC || {};
     if (BD) return;
     try { BD = JSON.parse(localStorage.getItem(CLAVE)); } catch (e) { BD = null; }
     if (!BD) {
-      const r = await fetch('data/demo-pirovano.json', { cache: 'no-cache' });
+      const r = await fetch(RAIZ + 'data/demo-' + SLUG + '.json', { cache: 'no-cache' });
+      if (!r.ok) throw new Error('Este club todavía no tiene su web en Pitazo Clubs.');
       BD = await r.json(); guardarDemo();
     }
   }
@@ -92,7 +99,7 @@ window.PC = window.PC || {};
   };
   const copia = o => JSON.parse(JSON.stringify(o));
 
-  // ---------- modo conectado: Apps Script de Pitazo Club ----------
+  // ---------- modo conectado: Apps Script de Pitazo Clubs ----------
   async function post(accion, datos) {
     const body = Object.assign({ accion, club: SLUG }, datos || {});
     const tp = sessionStorage.getItem('pc_token'); if (tp && !body.token) body.token = tp;
@@ -126,6 +133,11 @@ window.PC = window.PC || {};
       const k = 'pc_pub_' + SLUG;
       try { const d = await get('publico'); localStorage.setItem(k, JSON.stringify(d)); return d; }
       catch (e) { const c = localStorage.getItem(k); if (c) return JSON.parse(c); throw e; }
+    },
+    /** Clubes para la portada de Pitazo Clubs. */
+    async clubes() {
+      if (DEMO) return CFG.CLUBES || [];
+      try { return await get('clubes'); } catch (e) { return CFG.CLUBES || []; }
     },
     solicitud: d => DEMO ? local(() => M.solicitud(store, d)) : post('solicitud', { datos: d }),
 
@@ -228,7 +240,7 @@ window.PC = window.PC || {};
       }
       if (!d) {
         try {
-          d = await (await fetch('data/pitazo-' + ligaId + '.json', { cache: 'no-cache' })).json();
+          d = await (await fetch(RAIZ + 'data/pitazo-' + ligaId + '.json', { cache: 'no-cache' })).json();
           this.origen = 'Copia de Pitazo Final del ' + u.corta(d.generado);
         } catch (e) { d = { ligas: [], clubes: [], equipos: [], torneos: [], jugadores: [], partidos: [], eventos: [], noticias: [] }; this.origen = 'Sin datos de Pitazo Final'; }
       }

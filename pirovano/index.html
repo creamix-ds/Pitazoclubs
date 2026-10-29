@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pitazo Clubs</title>
+  <meta name="description" content="La web y la gestión de socios del club, con los resultados de Pitazo Final.">
+  <meta name="theme-color" content="#D7261E">
+  <link rel="icon" href="../img/icono.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/club.css?v=3">
+</head>
+<body>
+  <a class="saltar" href="#contenido">Saltar al contenido</a>
+  <div id="demo-barra" class="demo-barra" hidden></div>
+
+  <header class="cabeza" id="cabeza">
+    <div class="contenedor cabeza__barra">
+      <a class="marca" href="#/" id="marca">
+        <span class="escudo escudo--chico" id="marca-escudo"></span>
+        <span class="marca__nombre" id="marca-nombre">Pitazo Clubs</span>
+      </a>
+      <button class="menu-boton" id="menu-boton" aria-expanded="false" aria-controls="nav">Menú</button>
+      <nav class="nav" id="nav" aria-label="Principal">
+        <a href="#/" data-ruta="">Inicio</a>
+        <a href="#/futbol" data-ruta="futbol">Fútbol</a>
+        <a href="#/noticias" data-ruta="noticias">Noticias</a>
+        <a href="#/club" data-ruta="club">El club</a>
+        <a href="#/socio" data-ruta="socio" class="nav__socio" id="nav-socio">Mi carnet</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="contenido" tabindex="-1">
+    <p class="cargando contenedor">Cargando…</p>
+  </main>
+
+  <footer class="pie" id="pie">
+    <div class="contenedor pie__grilla">
+      <div>
+        <strong id="pie-nombre">Pitazo Clubs</strong>
+        <p id="pie-ciudad"></p>
+      </div>
+      <div class="pie__links">
+        <a href="#/asociate">Asociate</a>
+        <a href="#/socio">Mi carnet</a>
+        <a href="#/panel">Panel del club</a>
+      </div>
+      <div class="pie__pitazo">
+        <span>Resultados y tablas:</span>
+        <a id="pie-pitazo" href="https://creamix-ds.github.io/ligasdefutbol/" target="_blank" rel="noopener">Pitazo Final</a>
+        <small id="pie-origen"></small>
+      </div>
+    </div>
+    <div class="contenedor pie__firma">Hecho con <b>Pitazo Clubs</b> · creamixds</div>
+  </footer>
+
+  <div id="aviso" class="aviso" role="status" aria-live="polite" hidden></div>
+  <dialog id="dialogo" class="dialogo"></dialog>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+  <script src="../js/config.js?v=3"></script>
+  <script src="../js/motor.js?v=3"></script>
+  <script src="../js/datos.js?v=3"></script>
+  <script src="../js/sitio.js?v=3"></script>
+  <script src="../js/socio.js?v=3"></script>
+  <script src="../js/panel.js?v=3"></script>
+  <script src="../js/app.js?v=3"></script>
+</body>
+</html>

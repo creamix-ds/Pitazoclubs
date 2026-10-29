@@ -1,4 +1,4 @@
-/* Pitazo Club — panel de gestión del club (#/panel). */
+/* Pitazo Clubs — panel de gestión del club (#/panel). */
 window.PC = window.PC || {};
 (function () {
   'use strict';
@@ -334,6 +334,7 @@ window.PC = window.PC || {};
     el.querySelectorAll('[data-ver]').forEach(b => b.onclick = () => {
       const p = tabla('Pagos').find(x => x.id === b.dataset.ver);
       // Imagen embebida (demo) o link a Drive (conectado: el archivo es privado y lo ven solo los usuarios del panel).
+      if (!/^(https?:|data:)/.test(p.comprobante)) p.comprobante = PC.RAIZ + p.comprobante;
       const esImg = /^data:image\//.test(p.comprobante) || /\.(svg|png|jpe?g)$/i.test(p.comprobante);
       dialogo('Comprobante · ' + e(nombre(socio(p.socio_id))), `${!esImg ? `<p><a class="boton" href="${e(p.comprobante)}" target="_blank" rel="noopener">Abrir comprobante ↗</a></p>` : `<img src="${e(p.comprobante)}" alt="Comprobante" style="width:100%;border-radius:8px">`}
         <p style="margin-top:12px">Informó <b>${u.plata(p.monto)}</b> por ${e(p.medio)}. Fijate que el monto haya entrado en la cuenta del club antes de confirmar.</p>
@@ -556,7 +557,7 @@ window.PC = window.PC || {};
             ${campo('mp_link', 'Link de pago de Mercado Pago <small>(opcional)</small>', 'placeholder="https://mpago.la/..."')}
           </div>
           <div class="tarjeta form"><h3>Vínculo con Pitazo Final</h3>
-            <p class="chico" style="margin:0">De Pitazo Final se leen el fixture, los resultados, la tabla y los goleadores. Pitazo Club no modifica nada allá.</p>
+            <p class="chico" style="margin:0">De Pitazo Final se leen el fixture, los resultados, la tabla y los goleadores. Pitazo Clubs no modifica nada allá.</p>
             <div class="form__fila">${campo('pitazo_club_id', 'Código del club', 'placeholder="CL06"')}${campo('pitazo_liga_id', 'Código de la liga', 'placeholder="L01"')}</div>
             <button type="button" class="boton boton--suave" id="probar">Probar vínculo</button><span class="chico" id="probar-msj"></span>
           </div>
