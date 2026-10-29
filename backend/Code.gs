@@ -843,12 +843,15 @@ if (typeof module !== 'undefined') module.exports = MOTOR;
  *   panel_acceso {token, leido, lugar, cuantas}     escaneo rápido: devuelve solo el resultado
  *   entrada_comprar {datos}  entrada_ver {id, codigo}  entrada_pago {id, codigo, comprobante}
  *   socio_entrada {socio_token, partido_id, cantidad}   entrada con precio de socio
+ * Portada de Pitazo Clubs (sin club; la edita el dueño de esta planilla o un email de Portal > admins):
+ * GET  ?r=portal                                  textos, colores y logo de la portada + clubes
+ * POST portal_sesion | portal_datos | portal_guardar {cambios} | portal_club {datos} | portal_crear_club {datos}
  */
 
 const GOOGLE_CLIENT_ID = '513742201235-79a1b7tnk46vt8db28e8t54rqbqhrk3p.apps.googleusercontent.com'; // proyecto de Google Cloud pitazoclubs
 const CARPETA_ARCHIVOS = 'Pitazo Clubs - archivos';
 const SOCIO_DIAS = 60;                // cuánto dura la sesión del socio en el celular
-const VERSION_API = '29oct-h';        // aparece en ?r=ping: sirve para saber qué código está publicado
+const VERSION_API = '29oct-i';        // aparece en ?r=ping: sirve para saber qué código está publicado
 
 // Qué puede hacer cada rol del panel (columna rol de la pestaña Usuarios).
 const PERMISOS = {
@@ -954,6 +957,14 @@ function doGet(e) {
     if (p.r === 'ping' || !p.r) return json_({ ok: true, servicio: 'Pitazo Clubs', version: VERSION_API });
     // Consulta liviana para "tiempo real": no abre ninguna planilla, solo lee una propiedad.
     if (p.r === 'cambios') return json_({ ok: true, data: marca_(String(p.club || '').toLowerCase()) });
+    if (p.r === 'portal') {  // portada de Pitazo Clubs: textos, colores, logo y clubes
+      const cache = CacheService.getScriptCache(), k = 'portal_' + version_('portal');
+      const hit = cache.get(k);
+      if (hit) return ContentService.createTextOutput(hit).setMimeType(ContentService.MimeType.JSON);
+      const out = JSON.stringify({ ok: true, data: { config: portal_(), clubes: clubesPublicos_() } });
+      cache.put(k, out, 300);
+      return ContentService.createTextOutput(out).setMimeType(ContentService.MimeType.JSON);
+    }
     if (p.r === 'clubes') {  // portada de Pitazo Clubs
       return json_({ ok: true, data: clubes_().filter(c => String(c.activo || 'SI') !== 'NO').map(c => ({ slug: c.slug, nombre: c.nombre, ciudad: c.ciudad || '', escudo: c.escudo || '', color1: c.color1 || '' })) });
     }
@@ -973,6 +984,7 @@ function doGet(e) {
 function doPost(e) {
   try {
     const b = JSON.parse(e.postData.contents || '{}');
+    if (/^portal_/.test(String(b.accion))) return json_({ ok: true, data: accionPortal_(b) });
     const club = clubPorSlug_(b.club);
     const r = accion_(club, b);
     return json_({ ok: true, data: r });
@@ -1116,6 +1128,14 @@ function permitir_(usuario, op, a) {
 
 // ---------- sesiones ----------
 function sesion_(club, token, s) {
+  const info = cuentaGoogle_(token);
+  const devs = String(PropertiesService.getScriptProperties().getProperty('ADMINS') || '').toLowerCase().split(',').map(x => x.trim());
+  const u = s.rows('Usuarios').filter(x => String(x.email).toLowerCase().trim() === info.email && String(x.activo || 'SI') !== 'NO')[0];
+  if (!u && devs.indexOf(info.email) < 0) throw new Error('La cuenta ' + info.email + ' no tiene acceso al panel de ' + club.nombre + '. Pedile a un administrador que la agregue en Ajustes > Quién entra al panel.');
+  return { usuario: { email: info.email, nombre: (u && u.nombre) || info.nombre, rol: u ? String(u.rol || 'admin') : 'admin' } };
+}
+/** Verifica el ingreso con Google y devuelve { email, nombre }. */
+function cuentaGoogle_(token) {
   if (!GOOGLE_CLIENT_ID) throw new Error('Falta GOOGLE_CLIENT_ID en Code.gs.');
   if (!token) throw new Error('Sesión vencida. Volvé a ingresar.');
   const cache = CacheService.getScriptCache(), k = 'tk_' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token)).slice(0, 40);
@@ -1131,10 +1151,93 @@ function sesion_(club, token, s) {
     info = { email: String(t.email).toLowerCase(), nombre: t.name || '' };
     cache.put(k, JSON.stringify(info), Math.max(1, Math.min(900, Math.floor((vence - Date.now()) / 1000))));
   }
-  const devs = String(PropertiesService.getScriptProperties().getProperty('ADMINS') || '').toLowerCase().split(',').map(x => x.trim());
-  const u = s.rows('Usuarios').filter(x => String(x.email).toLowerCase().trim() === info.email && String(x.activo || 'SI') !== 'NO')[0];
-  if (!u && devs.indexOf(info.email) < 0) throw new Error('La cuenta ' + info.email + ' no tiene acceso al panel de ' + club.nombre + '. Pedile a un administrador que la agregue en Ajustes > Quién entra al panel.');
-  return { usuario: { email: info.email, nombre: (u && u.nombre) || info.nombre, rol: u ? String(u.rol || 'admin') : 'admin' } };
+  return info;
+}
+
+// ---------- portada de Pitazo Clubs (pestaña Portal de esta planilla: clave | valor) ----------
+const PORTAL_BASE = {
+  nombre: 'Pitazo Clubs', logo: '', kicker: 'De la familia de Pitazo Final',
+  titulo: 'La web y los socios\nde tu club, en un solo lugar',
+  subtitulo: 'Página propia, carnet digital, cuotas, entradas, control de acceso y resultados de la liga actualizados solos.',
+  color1: '#18181B', color_boton: '#F05A1A', color_boton_texto: '#18181B', color_fondo: '#FAFAF7',
+  whatsapp: '', instagram: '', email: '',
+  rasgos: ['Web del club: Noticias, actividades, cuota social y formulario para asociarse, con los colores y el escudo del club.',
+    'Resultados solos: Fixture, tabla, fase final y goleadores salen de Pitazo Final: no se carga nada dos veces.',
+    'Carnet digital: Cada socio tiene su carnet con QR en el celular y ve si está al día.',
+    'Cuotas sin vueltas: Se generan solas cada mes. El socio paga directo al club y sube el comprobante.',
+    'Entradas por partido: Precio general y precio socio, con QR que se habilita antes del partido.',
+    'Con inteligencia artificial: La crónica del partido y el resumen para la comisión, escritos con los datos reales.'].join('\n'),
+  admins: ''
+};
+function hojaPortal_() {
+  let sh = central_().getSheetByName('Portal');
+  if (!sh) { sh = central_().insertSheet('Portal'); sh.appendRow(['clave', 'valor']); sh.setFrozenRows(1); sh.getRange('A1:B1').setFontWeight('bold'); }
+  return sh;
+}
+function portal_(conAdmins) {
+  const c = Object.assign({}, PORTAL_BASE);
+  const sh = central_().getSheetByName('Portal');
+  if (sh) sh.getDataRange().getValues().slice(1).forEach(r => { const k = String(r[0] || '').trim(); if (k && k in PORTAL_BASE) c[k] = String(r[1] === undefined ? '' : r[1]); });
+  if (!conAdmins) delete c.admins;
+  return c;
+}
+function clubesPublicos_() {
+  return clubes_().filter(c => String(c.activo || 'SI') !== 'NO' && c.planilla_id).map(c => ({ slug: c.slug, nombre: c.nombre, ciudad: c.ciudad || '', escudo: c.escudo || '', color1: c.color1 || '' }));
+}
+// Quién edita la portada: el dueño de esta planilla, la propiedad ADMINS o los emails de Portal > admins.
+function sesionPortal_(token) {
+  const info = cuentaGoogle_(token);
+  let duenio = '';
+  try { duenio = String(central_().getOwner().getEmail() || '').toLowerCase(); } catch (err) {}
+  const lista = (String(PropertiesService.getScriptProperties().getProperty('ADMINS') || '') + ',' + portal_(true).admins + ',' + duenio)
+    .toLowerCase().split(/[,;\s]+/).filter(Boolean);
+  if (lista.indexOf(info.email) < 0) throw new Error('La cuenta ' + info.email + ' no administra Pitazo Clubs.');
+  return { email: info.email, nombre: info.nombre };
+}
+function datosPortal_(usuario) {
+  return {
+    usuario: usuario, config: portal_(true),
+    clubes: clubes_().map(c => ({ slug: c.slug, nombre: c.nombre, ciudad: c.ciudad || '', escudo: c.escudo || '', color1: c.color1 || '', activo: String(c.activo || 'SI'),
+      planilla_id: c.planilla_id || '', pitazo_club_id: c.pitazo_club_id || '', pitazo_liga_id: c.pitazo_liga_id || '', admin_email: c.admin_email || '' }))
+  };
+}
+const CAMPOS_CLUB_EDITABLES = ['nombre', 'ciudad', 'escudo', 'color1', 'activo'];
+function accionPortal_(b) {
+  const u = sesionPortal_(b.token);
+  switch (b.accion) {
+    case 'portal_sesion': return { usuario: u };
+    case 'portal_datos': return datosPortal_(u);
+    case 'portal_guardar': return conLock_(() => {
+      const sh = hojaPortal_(), v = sh.getDataRange().getValues(), cambios = b.cambios || {};
+      Object.keys(cambios).filter(k => k in PORTAL_BASE).forEach(k => {
+        const val = ['logo'].indexOf(k) >= 0 ? MOTOR.url(cambios[k], true) : String(cambios[k] === undefined ? '' : cambios[k]).trim();
+        const i = v.findIndex((r, j) => j > 0 && String(r[0]).trim() === k);
+        if (i > 0) sh.getRange(i + 1, 2).setValue(val); else { sh.appendRow([k, val]); v.push([k, val]); }
+      });
+      tocar_('portal');
+      return datosPortal_(u);
+    });
+    case 'portal_club': return conLock_(() => {   // cambia nombre, localidad, escudo, color o activo de un club
+      const d = b.datos || {}, { sh, h } = hojaClubes_();
+      const filas = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, h.length).getValues() : [];
+      const i = filas.findIndex(r => String(r[h.indexOf('slug')]).toLowerCase() === String(d.slug || '').toLowerCase());
+      if (i < 0) throw new Error('No existe el club ' + d.slug);
+      CAMPOS_CLUB_EDITABLES.forEach(k => { if (d[k] !== undefined) sh.getRange(i + 2, h.indexOf(k) + 1).setValue(k === 'escudo' ? MOTOR.url(d[k], true) : k === 'activo' ? (String(d[k]).toUpperCase() === 'NO' ? 'NO' : 'SI') : String(d[k]).trim()); });
+      tocar_('portal');
+      return datosPortal_(u);
+    });
+    case 'portal_crear_club': return conLock_(() => {
+      const d = Object.assign({}, b.datos || {});
+      d.slug = String(d.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+      if (!d.slug || !String(d.nombre || '').trim()) throw new Error('Completá el nombre y la dirección (slug) del club.');
+      if (['js', 'css', 'img', 'data', 'backend', 'herramientas', 'admin', 'www'].indexOf(d.slug) >= 0) throw new Error('"' + d.slug + '" está reservado: elegí otra dirección para el club.');
+      if (d.escudo) d.escudo = MOTOR.url(d.escudo, true);
+      crearClub(d);
+      tocar_('portal');
+      return datosPortal_(u);
+    });
+  }
+  throw new Error('Acción desconocida');
 }
 function secreto_() {
   const pr = PropertiesService.getScriptProperties();

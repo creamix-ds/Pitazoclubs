@@ -1,1 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M32 3 8 11v19c0 15 10 26 24 31 14-5 24-16 24-31V11z" fill="#D7261E"/><path d="M40 6.5 22 59" stroke="#fff" stroke-width="9"/><circle cx="32" cy="31" r="9" fill="#1A1A1A"/><circle cx="32" cy="31" r="3.5" fill="#fff"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pitazo Clubs">
+  <circle cx="30" cy="34" r="26" fill="#F05A1A"/>
+  <circle cx="30" cy="34" r="17" fill="none" stroke="#fff" stroke-width="2.4" opacity=".45"/>
+  <path d="M30 8v52" stroke="#fff" stroke-width="2.4" opacity=".45"/>
+  <path fill="#fff" fill-rule="evenodd" d="M21 20h12.5a9.5 9.5 0 0 1 0 19H28v9h-7zm7 6v7h5a3.5 3.5 0 0 0 0-7z"/>
+  <g fill="none" stroke="#F05A1A" stroke-width="3.4" stroke-linecap="round"><path d="M52 8a10 10 0 0 1 4 6"/><path d="M55 2a17 17 0 0 1 7 10"/></g>
+</svg>

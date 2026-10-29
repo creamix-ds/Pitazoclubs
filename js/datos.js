@@ -138,8 +138,64 @@ window.PC = window.PC || {};
   };
   PC.copia = copiaLocal;
 
+  // Portada de Pitazo Clubs: valores por defecto (los mismos que backend/base.gs > PORTAL_BASE).
+  const PORTAL_BASE = {
+    nombre: 'Pitazo Clubs', logo: '', kicker: 'De la familia de Pitazo Final',
+    titulo: 'La web y los socios\nde tu club, en un solo lugar',
+    subtitulo: 'Página propia, carnet digital, cuotas, entradas, control de acceso y resultados de la liga actualizados solos.',
+    color1: '#18181B', color_boton: '#F05A1A', color_boton_texto: '#18181B', color_fondo: '#FAFAF7',
+    whatsapp: '', instagram: '', email: '',
+    rasgos: ['Web del club: Noticias, actividades, cuota social y formulario para asociarse, con los colores y el escudo del club.',
+      'Resultados solos: Fixture, tabla, fase final y goleadores salen de Pitazo Final: no se carga nada dos veces.',
+      'Carnet digital: Cada socio tiene su carnet con QR en el celular y ve si está al día.',
+      'Cuotas sin vueltas: Se generan solas cada mes. El socio paga directo al club y sube el comprobante.',
+      'Entradas por partido: Precio general y precio socio, con QR que se habilita antes del partido.',
+      'Con inteligencia artificial: La crónica del partido y el resumen para la comisión, escritos con los datos reales.'].join('\n'),
+    admins: ''
+  };
+  const demoPortal = () => Object.assign({}, PORTAL_BASE, copiaLocal.leer('pc_portal_demo') || {});
+  const demoClubes = () => copiaLocal.leer('pc_portal_demo_clubes') || (CFG.CLUBES || []).map(c => Object.assign({ activo: 'SI', planilla_id: '' }, c));
+  const datosDemoPortal = () => ({ usuario: { email: 'demo@pitazoclubs', nombre: 'Admin (demo)' }, config: demoPortal(), clubes: demoClubes() });
+
   const DB = {
-    demo: DEMO, slug: SLUG,
+    demo: DEMO, slug: SLUG, PORTAL_BASE,
+
+    // ----- portada y panel de Pitazo Clubs -----
+    portalGuardado: () => copiaLocal.leer('pc_portal'),
+    async portal() {
+      let p;
+      if (DEMO) { const c = demoPortal(); delete c.admins; p = { config: c, clubes: demoClubes().filter(x => x.activo !== 'NO') }; }
+      else p = await get('portal');
+      copiaLocal.guardar('pc_portal', p);
+      return p;
+    },
+    async adminIngresar(googleToken) {
+      if (DEMO) { sessionStorage.setItem('pc_admin_demo', '1'); return { usuario: datosDemoPortal().usuario }; }
+      sessionStorage.setItem('pc_token', googleToken);
+      try { return await post('portal_sesion'); } catch (e) { sessionStorage.removeItem('pc_token'); throw e; }
+    },
+    adminActivo: () => DEMO ? !!sessionStorage.getItem('pc_admin_demo') : !!sessionStorage.getItem('pc_token'),
+    adminSalir() { sessionStorage.removeItem('pc_admin_demo'); sessionStorage.removeItem('pc_token'); },
+    adminDatos() { return DEMO ? Promise.resolve(datosDemoPortal()) : post('portal_datos'); },
+    async adminGuardar(cambios) {
+      if (!DEMO) return post('portal_guardar', { cambios });
+      const c = Object.assign(copiaLocal.leer('pc_portal_demo') || {}, cambios);
+      if (c.logo) c.logo = M.url(c.logo, true);
+      copiaLocal.guardar('pc_portal_demo', c); return datosDemoPortal();
+    },
+    async adminClub(datos) {
+      if (!DEMO) return post('portal_club', { datos });
+      const l = demoClubes(), x = l.find(c => c.slug === datos.slug); if (x) Object.assign(x, datos, datos.escudo !== undefined ? { escudo: M.url(datos.escudo, true) } : {});
+      copiaLocal.guardar('pc_portal_demo_clubes', l); return datosDemoPortal();
+    },
+    async adminCrearClub(datos) {
+      if (!DEMO) return post('portal_crear_club', { datos });
+      const l = demoClubes(), slug = String(datos.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+      if (!slug || !datos.nombre) throw new Error('Completá el nombre y la dirección (slug) del club.');
+      if (l.some(c => c.slug === slug)) throw new Error('Ya existe un club con slug ' + slug);
+      l.push(Object.assign({}, datos, { slug, activo: 'SI', planilla_id: '(demo)', escudo: M.url(datos.escudo, true) }));
+      copiaLocal.guardar('pc_portal_demo_clubes', l); return datosDemoPortal();
+    },
     /** Marca del último cambio en los datos del club (consulta liviana). */
     async marca() {
       if (DEMO) return localStorage.getItem(CLAVE + '_marca') || '0';

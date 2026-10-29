@@ -4,6 +4,7 @@
  *  #/entradas         #/entrada/ID-CODIGO              entradas de los partidos
  *  #/socio[/cuenta|pagos|entradas|grupo]  carnet digital del socio
  *  #/panel[/socios|cuotas|pagos|acceso|solicitudes|noticias|club]
+ *  En la raíz: portada de Pitazo Clubs y #/admin (su panel: textos, colores, logo y clubes)
  */
 window.PC = window.PC || {};
 (function () {
@@ -36,44 +37,68 @@ window.PC = window.PC || {};
     if (c.pitazo_club_id) document.getElementById('pie-pitazo').href = PC.PZ.urlClub(c.pitazo_club_id);
   };
 
-  // Portada de Pitazo Clubs (pitazoclubs.com/): qué es y la lista de clubes.
-  async function portada() {
-    const e = u.esc, CFG = window.CONFIG;
-    document.body.classList.add('en-portada'); document.title = 'Pitazo Clubs';
-    document.getElementById('nav').style.display = 'none'; document.getElementById('menu-boton').style.display = 'none';
-    document.getElementById('marca-nombre').textContent = 'Pitazo Clubs';
-    document.getElementById('marca-escudo').outerHTML = PC.escudo(PC.RAIZ + 'img/icono.svg', 'Pitazo Clubs', 'escudo--chico').replace('class="escudo', 'id="marca-escudo" class="escudo');
-    document.getElementById('pie-nombre').textContent = 'Pitazo Clubs';
+  // ---------- Portada de Pitazo Clubs (pitazoclubs.com/) ----------
+  // Textos, colores y logo salen de la pestaña Portal (se editan en #/admin).
+  const hexOk = v => /^#[0-9a-f]{6}$/i.test(v || '');
+  PC.temaPortal = function (c) {
+    const r = document.documentElement.style;
+    if (hexOk(c.color1)) {
+      r.setProperty('--c1', c.color1);
+      const [R, G, B] = [1, 3, 5].map(i => parseInt(c.color1.substr(i, 2), 16));
+      r.setProperty('--sobre-c1', (R * 299 + G * 587 + B * 114) / 1000 > 165 ? '#1A1A1A' : '#fff');
+    }
+    if (hexOk(c.color_fondo)) r.setProperty('--fondo', c.color_fondo);
+    if (hexOk(c.color_boton)) r.setProperty('--boton', c.color_boton);
+    if (hexOk(c.color_boton_texto)) r.setProperty('--boton-texto', c.color_boton_texto);
+    document.querySelector('meta[name=theme-color]').setAttribute('content', c.color1 || '#D7261E');
+    const logo = c.logo ? window.MOTOR.url(c.logo, true) : PC.RAIZ + 'img/icono.svg';
+    let l = document.querySelector('link[rel="icon"]'); if (l) { l.removeAttribute('type'); l.href = logo; }
+    document.title = c.nombre || 'Pitazo Clubs';
+    document.getElementById('marca-nombre').textContent = c.nombre || 'Pitazo Clubs';
+    document.getElementById('marca-escudo').outerHTML = PC.escudo(logo, c.nombre || 'Pitazo Clubs', 'escudo--chico').replace('class="escudo', 'id="marca-escudo" class="escudo');
+  };
+  function pintarPortada(p) {
+    const e = u.esc, CFG = window.CONFIG, c = p.config, clubes = p.clubes || [];
+    PC.temaPortal(c);
+    document.getElementById('pie-nombre').textContent = c.nombre || 'Pitazo Clubs';
     document.getElementById('pie-ciudad').textContent = 'La web y la gestión de socios de tu club.';
-    document.querySelector('.pie__links').innerHTML = `<a href="${e(CFG.PITAZO_WEB)}" target="_blank" rel="noopener">Pitazo Final</a>`;
-    const clubes = await DB.clubes();
-    const wa = CFG.WHATSAPP_VENTAS ? u.wa(CFG.WHATSAPP_VENTAS, 'Hola! Quiero la web y la gestión de socios para mi club.') : '';
-    const rasgos = [
-      ['Web del club', 'Noticias, actividades, cuota social y formulario para asociarse. Con los colores y el escudo del club.'],
-      ['Resultados solos', 'Fixture, tabla, fase final y goleadores salen de Pitazo Final: no se carga nada dos veces.'],
-      ['Carnet digital', 'Cada socio tiene su carnet con QR en el celular y ve si está al día.'],
-      ['Cuotas sin vueltas', 'Se generan solas cada mes. El socio paga directo al club y sube el comprobante.'],
-      ['Control de acceso', 'En la puerta se escanea el QR con el celular: verde pasa, rojo debe.'],
-      ['Con inteligencia artificial', 'La crónica del partido y el resumen para la comisión, escritos con los datos reales.']
-    ];
+    document.querySelector('.pie__links').innerHTML = `<a href="${e(CFG.PITAZO_WEB)}" target="_blank" rel="noopener">Pitazo Final</a>${c.instagram ? `<a href="${e('https://instagram.com/' + c.instagram.replace(/^@|.*instagram\.com\//g, '').replace(/\/$/, ''))}" target="_blank" rel="noopener">Instagram</a>` : ''}${c.email ? `<a href="mailto:${e(c.email)}">${e(c.email)}</a>` : ''}<a href="#/admin">Administrar</a>`;
+    const tel = c.whatsapp || CFG.WHATSAPP_VENTAS;
+    const wa = tel ? u.wa(tel, 'Hola! Quiero la web y la gestión de socios para mi club.') : '';
+    const rasgos = String(c.rasgos || '').split('\n').map(x => x.trim()).filter(Boolean).map(x => { const k = x.indexOf(':'); return k > 0 ? [x.slice(0, k).trim(), x.slice(k + 1).trim()] : [x, '']; });
     document.getElementById('contenido').innerHTML = `
       <section class="hero"><div class="contenedor hero__grilla" style="grid-template-columns:1fr">
-        <div><div class="hero__kicker">De la familia de Pitazo Final</div>
-          <h1>La web y los socios<br>de tu club, en un solo lugar</h1>
-          <p class="hero__sub" style="max-width:60ch">Página propia, carnet digital, cuotas, control de acceso y resultados de la liga actualizados solos.</p>
+        <div>${c.kicker ? `<div class="hero__kicker">${e(c.kicker)}</div>` : ''}
+          <h1>${e(c.titulo || '').replace(/\n/g, '<br>')}</h1>
+          ${c.subtitulo ? `<p class="hero__sub" style="max-width:60ch">${e(c.subtitulo)}</p>` : ''}
           <div class="hero__acciones">${wa ? `<a class="boton boton--blanco" href="${e(wa)}" target="_blank" rel="noopener">Quiero la web de mi club</a>` : ''}${clubes[0] ? `<a class="boton boton--borde" href="${e(PC.RAIZ + clubes[0].slug + '/')}">Ver un ejemplo</a>` : ''}</div></div>
       </div></section>
       <section class="seccion contenedor"><div class="seccion__titulo"><h2>Clubes</h2></div>
-        <div class="grilla-3">${clubes.map(c => `<a class="tarjeta" href="${e(PC.RAIZ + c.slug + '/')}" style="display:flex;gap:14px;align-items:center;text-decoration:none;color:inherit;border-top:5px solid ${/^#[0-9a-f]{6}$/i.test(c.color1 || '') ? c.color1 : 'var(--c1)'}">
-          ${PC.escudo(c.escudo, c.nombre, 'escudo--partido')}<div><h3>${e(c.nombre)}</h3><span class="chico">${e(c.ciudad || '')}</span></div></a>`).join('') || '<p class="vacio">Pronto.</p>'}</div>
+        <div class="grilla-3">${clubes.map(x => `<a class="tarjeta" href="${e(PC.RAIZ + x.slug + '/')}" style="display:flex;gap:14px;align-items:center;text-decoration:none;color:inherit;border-top:5px solid ${hexOk(x.color1) ? x.color1 : 'var(--c1)'}">
+          ${PC.escudo(window.MOTOR.url(x.escudo, true), x.nombre, 'escudo--partido')}<div><h3>${e(x.nombre)}</h3><span class="chico">${e(x.ciudad || '')}</span></div></a>`).join('') || '<p class="vacio">Pronto.</p>'}</div>
       </section>
-      <section class="seccion contenedor" style="padding-top:0"><div class="seccion__titulo"><h2>Qué incluye</h2></div>
-        <div class="grilla-3">${rasgos.map(([t, d]) => `<div class="tarjeta actividad"><h3>${t}</h3><p class="chico" style="margin:6px 0 0">${d}</p></div>`).join('')}</div>
-      </section>`;
+      ${rasgos.length ? `<section class="seccion contenedor" style="padding-top:0"><div class="seccion__titulo"><h2>Qué incluye</h2></div>
+        <div class="grilla-3">${rasgos.map(([t, d]) => `<div class="tarjeta actividad"><h3>${e(t)}</h3>${d ? `<p class="chico" style="margin:6px 0 0">${e(d)}</p>` : ''}</div>`).join('')}</div>
+      </section>` : ''}`;
+  }
+  async function portada() {
+    document.body.classList.add('en-portada');
+    document.getElementById('nav').style.display = 'none'; document.getElementById('menu-boton').style.display = 'none';
+    const guardada = DB.portalGuardado();
+    if (guardada) pintarPortada(guardada); // al instante con la última copia
+    try { const p = await DB.portal(); if (!guardada || JSON.stringify(p) !== JSON.stringify(guardada)) pintarPortada(p); }
+    catch (err) { if (!guardada) pintarPortada({ config: DB.PORTAL_BASE, clubes: window.CONFIG.CLUBES || [] }); }
+  }
+  // En la raíz no hay club: portada o el panel de Pitazo Clubs (#/admin).
+  function rutaRaiz() {
+    const admin = /^#\/admin/.test(location.hash);
+    document.body.classList.toggle('en-panel', admin);
+    if (admin) return PC.admin.ver();
+    portada();
   }
 
   async function arrancar() {
-    if (!PC.SLUG) return portada();
+    if (!PC.SLUG) { window.addEventListener('hashchange', rutaRaiz); return rutaRaiz(); }
     try {
       // Con una copia guardada la web aparece al instante; los datos nuevos llegan por detrás.
       const guardado = DB.demo ? null : PC.copia.leer('pc_pub_' + PC.SLUG);

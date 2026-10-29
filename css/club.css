@@ -381,7 +381,7 @@ body.en-panel .cabeza, body.en-panel .pie { display: none; }
 .color-fila input[type=color] { width: 54px; height: 44px; padding: 2px; border-radius: 8px; border: 1.5px solid #D5D1CB; }
 
 /* Portada de Pitazo Clubs: la banda va a la derecha para no pisar el título */
-body.en-portada .hero::before { inset: -40% 6% -40% auto; width: 90px; }
+body.en-portada .hero::before { inset: -40% 6% -40% auto; width: 90px; background: var(--boton, var(--c2)); }
 body.en-portada .hero::after { background: linear-gradient(90deg, var(--c1) 0%, var(--c1) 72%, transparent 92%); }
 @media (max-width: 860px) { body.en-portada .hero::before { inset: -40% -50px -40% auto; } }
 
@@ -421,3 +421,17 @@ body.en-portada .hero::after { background: linear-gradient(90deg, var(--c1) 0%, 
 .entradas-uso i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #fff; }
 .entradas-uso i.si { background: #fff; }
 .resultado-acceso__etapa { display: block; margin-top: 8px; font-size: .8rem; opacity: .85; }
+
+/* Portada de Pitazo Clubs: colores que se eligen en #/admin */
+body.en-portada .hero { color: var(--sobre-c1, #fff); }
+body.en-portada .hero .boton--blanco { background: var(--boton, #fff); color: var(--boton-texto, var(--c1-osc)); }
+body.en-portada .hero .boton--blanco:hover { filter: brightness(1.06); }
+body.en-portada .tarjeta.actividad { border-top: 4px solid var(--boton, var(--c1)); }
+
+/* Panel de Pitazo Clubs (#/admin) */
+.paletas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.paleta { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--linea); border-radius: var(--radio-chico); background: var(--papel); font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer; text-align: left; min-height: 44px; }
+.paleta:hover { border-color: var(--tinta-3); }
+.paleta__muestra { display: flex; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,0,0,.08); }
+.paleta__muestra i { width: 16px; height: 26px; display: block; }
+.muestra-portal { margin-top: 4px; box-shadow: var(--sombra); border-radius: 10px; }
