@@ -164,6 +164,39 @@ window.PC = window.PC || {};
       return post('socio_informar', { datos: d });
     },
     socioSalir() { sessionStorage.removeItem('pc_socio_demo'); localStorage.removeItem('pc_socio_' + SLUG); },
+    /** Entrada con precio de socio (para él y su grupo familiar). Devuelve { entrada, vista }. */
+    socioEntrada(partido_id, cantidad) {
+      if (DEMO) return local(() => { const id = sessionStorage.getItem('pc_socio_demo'); const e = M.comprarEntrada(store, { partido_id, cantidad }, id, false); return { entrada: M.vistaEntrada(store, e, true), vista: M.vistaSocio(store, id) }; });
+      return post('socio_entrada', { partido_id, cantidad });
+    },
+
+    // ----- entradas (web pública) -----
+    entradaComprar(d) {
+      const r = DEMO ? local(() => M.vistaEntrada(store, M.comprarEntrada(store, d, null, false), true)) : post('entrada_comprar', { datos: d });
+      return r.then(v => { DB.recordarEntrada(v.entrada); return v; });
+    },
+    entradaVer(id, codigo) {
+      if (DEMO) return local(() => M.vistaEntrada(store, M.entradaPorCodigo(store, id, codigo), true));
+      return post('entrada_ver', { id, codigo });
+    },
+    entradaPago(id, codigo, comprobante) {
+      if (DEMO) return local(() => M.vistaEntrada(store, M.informarEntrada(store, id, codigo, comprobante, 'Transferencia'), true));
+      return post('entrada_pago', { id, codigo, comprobante, medio: 'Transferencia' });
+    },
+    // Entradas compradas desde este celular (para encontrarlas de nuevo sin el link).
+    misEntradas() { try { return JSON.parse(localStorage.getItem('pc_entradas_' + SLUG)) || []; } catch (e) { return []; } },
+    recordarEntrada(e) {
+      if (!e || !e.id) return;
+      const l = DB.misEntradas().filter(x => x.id !== e.id); l.unshift({ id: e.id, codigo: e.codigo });
+      try { localStorage.setItem('pc_entradas_' + SLUG, JSON.stringify(l.slice(0, 20))); } catch (x) {}
+    },
+    linkEntrada: e => location.origin + location.pathname + '#/entrada/' + e.id + '-' + e.codigo,
+
+    /** Escaneo en la puerta: pedido liviano, devuelve solo el resultado. */
+    acceso(leido, lugar, cuantas) {
+      if (DEMO) return local(() => M.validarAcceso(store, leido, lugar, cuantas));
+      return post('panel_acceso', { leido, lugar, cuantas });
+    },
 
     // ----- panel -----
     async panelIngresar(googleToken) {
@@ -193,7 +226,10 @@ window.PC = window.PC || {};
         resolverPago: () => M.resolverPago(store, args.id, args.aprobar, quien, args.motivo),
         aprobarSolicitud: () => M.aprobarSolicitud(store, args.id),
         rechazarSolicitud: () => { const s = store.rows('Solicitudes').find(x => x.id === args.id); if (s) { s.estado = 'Rechazada'; } return s; },
-        validarAcceso: () => M.validarAcceso(store, args.leido, args.lugar),
+        validarAcceso: () => M.validarAcceso(store, args.leido, args.lugar, args.cuantas),
+        venderEntrada: () => M.comprarEntrada(store, args.datos || {}, null, true, quien),
+        resolverEntrada: () => M.resolverEntrada(store, args.id, args.aprobar, quien, args.motivo),
+        anularEntrada: () => M.anularEntrada(store, args.id),
         nuevoCodigo: () => M.nuevoCodigo(store, args.id, args.que),
         enviarCodigo: () => { const s = store.rows('Socios').find(x => x.id === args.id); return { email: M.paraRecuperar(store, s && s.dni).email, demo: true }; },
         // Sin IA en la demo: borrador armado solo con los datos reales del partido.

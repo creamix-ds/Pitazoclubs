@@ -36,10 +36,7 @@ Socio de prueba: DNI **30111222**, código **1234**. Panel: botón "Entrar a la 
 ## Direcciones
 - Raíz (`creamix-ds.github.io/Pitazoclubs/`, a futuro `pitazoclubs.com/`): portada de Pitazo Clubs con la lista de clubes.
 - Cada club: `/<slug>/` (ej. `/pirovano/`), carnet en `/<slug>/#/socio`, panel en `/<slug>/#/panel`.
-- La carpeta de cada club tiene solo `index.html` (copia del de la raíz con rutas `../`). Se arma con `./crear-club.sh <slug>`
-  o en PowerShell: `New-Item -ItemType Directory <slug> -Force; (Get-Content index.html -Raw) -replace '(href|src)="(css|js|img)/','$1="../$2/' | Set-Content .\<slug>\index.html -Encoding utf8`
-  Rehacerla cuando cambie el index.html de la raíz.
-- `404.html`: si alguien entra a `/<slug>/` sin carpeta, lo manda a `?c=<slug>` (funciona igual, con otra dirección).
+- Un club nuevo no necesita carpeta ni cambios en el código: `404.html` abre `.../<slug>/` para cualquier club dado de alta en la pestaña Clubes (menú Pitazo Clubs > Crear clubes nuevos). `404.html` se arma desde `index.html` con `python3 herramientas/armar.py`
 
 ## Club nuevo
 1. En Apps Script: `crearClub({slug, nombre, nombre_corto, lema, ciudad, pitazo_club_id, pitazo_liga_id, escudo, color1, color2, admin_email})`.

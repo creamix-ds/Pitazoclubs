@@ -18,11 +18,15 @@ var MOTOR = (function () {
     Pagos: ['id', 'socio_id', 'fecha', 'monto', 'medio', 'cuotas', 'comprobante', 'estado', 'registrado_por', 'observaciones'],
     Noticias: ['id', 'fecha', 'titulo', 'resumen', 'cuerpo', 'imagen', 'partido_id', 'publicada', 'autor'],
     Sponsors: ['id', 'nombre', 'logo', 'link', 'orden'],
-    Accesos: ['id', 'fecha_hora', 'socio_id', 'nombre', 'resultado', 'motivo', 'lugar'],
-    Solicitudes: ['id', 'fecha', 'nombre', 'apellido', 'dni', 'nacimiento', 'telefono', 'email', 'categoria_id', 'actividades', 'mensaje', 'estado', 'socio_id']
+    Accesos: ['id', 'fecha_hora', 'socio_id', 'nombre', 'resultado', 'motivo', 'lugar', 'entrada_id'],
+    Solicitudes: ['id', 'fecha', 'nombre', 'apellido', 'dni', 'nacimiento', 'telefono', 'email', 'categoria_id', 'actividades', 'mensaje', 'estado', 'socio_id'],
+    // Partidos con venta de entradas (los arma el club; se pueden traer de Pitazo Final).
+    Partidos: ['id', 'fecha', 'hora', 'rival', 'torneo', 'lugar', 'precio_general', 'precio_socio', 'cupo', 'estado', 'pitazo_partido_id', 'observaciones'],
+    Entradas: ['id', 'partido_id', 'fecha_hora', 'tipo', 'socio_id', 'nombre', 'dni', 'telefono', 'email', 'cantidad', 'precio_unit', 'total',
+      'estado', 'medio', 'comprobante', 'codigo', 'usadas', 'ultimo_uso', 'registrado_por', 'observaciones']
   };
-  var PREFIJO = { Categorias: 'CAT', Actividades: 'ACT', Socios: 'S', Cuotas: 'C', Pagos: 'PG', Noticias: 'NC', Sponsors: 'SP', Accesos: 'AC', Solicitudes: 'SOL' };
-  var DIGITOS = { Socios: 4, Cuotas: 5, Pagos: 4, Accesos: 5, Solicitudes: 4 };
+  var PREFIJO = { Categorias: 'CAT', Actividades: 'ACT', Socios: 'S', Cuotas: 'C', Pagos: 'PG', Noticias: 'NC', Sponsors: 'SP', Accesos: 'AC', Solicitudes: 'SOL', Partidos: 'PT', Entradas: 'EN' };
+  var DIGITOS = { Socios: 4, Cuotas: 5, Pagos: 4, Accesos: 5, Solicitudes: 4, Partidos: 3, Entradas: 5 };
 
   // Claves de Config que nunca salen en la web pública.
   var PRIVADAS = ['mp_access_token', 'gemini', 'secreto', 'cobro_', 'mp_link'];  // los datos de cobro los ve solo el socio que entró
@@ -188,6 +192,7 @@ var MOTOR = (function () {
       grupo: grupo.map(function (x) { return { id: x.id, nombre: nombreDe(x), numero: x.numero }; }),
       cuotas: cuotas, pagos: pagos.slice(0, 20),
       qr: 'PC1:' + txt(cfg.pitazo_club_id || 'CLUB') + ':' + s.id + ':' + txt(s.codigo_carnet),
+      tickets: entradasDelSocio(store, s),
       cobro: {
         alias: cfg.cobro_alias || '', cbu: cfg.cobro_cbu || '', titular: cfg.cobro_titular || '',
         banco: cfg.cobro_banco || '', cuit: cfg.cobro_cuit || '', mp_link: cfg.mp_link || '', whatsapp: cfg.whatsapp || ''
@@ -304,10 +309,164 @@ var MOTOR = (function () {
     return socio;
   }
 
+  // ---------- Entradas por partido ----------
+  // Cada partido tiene precio general y precio socio. El socio al día paga el precio socio, y puede
+  // sacar tantas entradas como integrantes activos tenga su grupo familiar (1 si es individual).
+  // El QR de la entrada se habilita X horas antes del partido (Config entradas_horas_antes, 24 por defecto)
+  // y se puede escanear tantas veces como entradas tenga.
+  var ESTADOS_VIVOS = ['Sin pagar', 'A confirmar', 'Pagada'];
+  function minutosDe(s) {
+    var m = txt(s).match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/);
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)) / 60000 : null;
+  }
+  function diaHora(s) { var m = txt(s).match(/^\d{4}-(\d{2})-(\d{2})(?: (\d{2}:\d{2}))?/); return m ? (+m[2]) + '/' + (+m[1]) + (m[3] ? ' ' + m[3] + ' h' : '') : txt(s); }
+  function textoMinutos(n) { return new Date(n * 60000).toISOString().slice(0, 16).replace('T', ' '); }
+  function horaDe(v) { var m = txt(v).match(/(\d{1,2})[:.](\d{2})/); return m ? pad(m[1], 2) + ':' + m[2] : ''; }
+  function ventana(store, p) {
+    var cfg = config(store, true);
+    var antes = txt(cfg.entradas_horas_antes) === '' ? 24 : num(cfg.entradas_horas_antes);
+    var fecha = fechaISO(p.fecha), hora = horaDe(p.hora);
+    var ini = minutosDe(fecha + ' ' + (hora || '00:00'));
+    if (ini === null) return { abierta: false, antes: true, paso: false, habilita: '', vence: '', inicio: '' };
+    var desde = ini - antes * 60, hasta = Math.max(ini + 6 * 60, minutosDe(fecha + ' 23:59'));
+    var ya = minutosDe(ahora(store));
+    return { abierta: ya >= desde && ya <= hasta, antes: ya < desde, paso: ya > hasta, habilita: textoMinutos(desde), vence: textoMinutos(hasta), inicio: fecha + ' ' + (hora || ''), horas: antes };
+  }
+  function entradasDe(store, partidoId) {
+    return store.rows('Entradas').filter(function (x) { return txt(x.partido_id) === txt(partidoId) && ESTADOS_VIVOS.indexOf(txt(x.estado)) >= 0; });
+  }
+  function infoPartido(store, p) {
+    var vendidas = entradasDe(store, p.id).reduce(function (a, x) { return a + num(x.cantidad); }, 0);
+    var cupo = num(p.cupo);
+    return {
+      id: p.id, fecha: fechaISO(p.fecha), hora: horaDe(p.hora), rival: txt(p.rival), torneo: txt(p.torneo), lugar: txt(p.lugar),
+      precio_general: num(p.precio_general), precio_socio: num(p.precio_socio), cupo: cupo,
+      disponibles: cupo ? Math.max(0, cupo - vendidas) : null, ventana: ventana(store, p), pitazo_partido_id: txt(p.pitazo_partido_id)
+    };
+  }
+  // Partidos con entradas a la venta (los que todavía no pasaron).
+  function partidosEnVenta(store) {
+    return store.rows('Partidos').filter(function (p) { return txt(p.estado || 'Venta') === 'Venta'; })
+      .map(function (p) { return infoPartido(store, p); })
+      .filter(function (p) { return p.fecha && !p.ventana.paso; })
+      .sort(function (a, b) { return (a.fecha + a.hora) < (b.fecha + b.hora) ? -1 : 1; });
+  }
+  // Grupo que comparte las entradas de socio: el titular y sus integrantes activos.
+  function grupoDe(store, socio) {
+    var tid = txt(socio.titular_id) || txt(socio.id);
+    return store.rows('Socios').filter(function (x) {
+      return (txt(x.id) === tid || txt(x.titular_id) === tid) && txt(x.estado || 'Activo') === 'Activo';
+    });
+  }
+  function cupoSocio(store, socio, partidoId) {
+    var ids = grupoDe(store, socio).map(function (x) { return txt(x.id); });
+    var ya = entradasDe(store, partidoId).filter(function (x) { return txt(x.tipo) === 'Socio' && ids.indexOf(txt(x.socio_id)) >= 0; })
+      .reduce(function (a, x) { return a + num(x.cantidad); }, 0);
+    return { grupo: Math.max(1, ids.length), ya: ya, quedan: Math.max(0, Math.max(1, ids.length) - ya) };
+  }
+  // d = { partido_id, cantidad, nombre, apellido, dni, telefono, email, medio, estado }
+  // socioId: si compra un socio desde su carnet. porPanel: venta en la puerta/secretaría (queda Pagada).
+  function comprarEntrada(store, d, socioId, porPanel, usuario) {
+    var p = porId(store, 'Partidos', d.partido_id);
+    if (!p || txt(p.estado || 'Venta') !== 'Venta') throw err('Ese partido no tiene entradas a la venta.');
+    var info = infoPartido(store, p);
+    if (info.ventana.paso) throw err('Ese partido ya se jugó.');
+    var cant = Math.floor(num(d.cantidad) || 1);
+    if (cant < 1 || cant > 20) throw err('Elegí entre 1 y 20 entradas.');
+    if (info.disponibles !== null && cant > info.disponibles) throw err(info.disponibles ? 'Quedan solo ' + info.disponibles + ' entradas.' : 'Se agotaron las entradas.');
+    var e = { id: nuevoId(store, 'Entradas'), partido_id: p.id, fecha_hora: ahora(store), cantidad: cant, codigo: azar(8), usadas: 0, ultimo_uso: '',
+      medio: txt(d.medio), comprobante: '', registrado_por: txt(usuario || (socioId ? 'socio' : 'web')), observaciones: txt(d.observaciones) };
+    var s = socioId ? porId(store, 'Socios', socioId) : null;
+    if (!s && porPanel && txt(d.socio_id)) s = porId(store, 'Socios', d.socio_id);
+    if (socioId && !s) throw err('Sesión vencida.');
+    var esSocio = false;
+    if (s) {
+      var est = estadoConTitular(store, s), c = cupoSocio(store, s, p.id);
+      if (est.alDia && c.quedan >= cant) esSocio = true;
+      else if (porPanel) esSocio = false; // en la puerta, si no le corresponde el precio de socio, paga general
+      else if (est.alDia && c.quedan > 0) throw err('Con el precio de socio podés sacar ' + c.quedan + (c.quedan === 1 ? ' entrada' : ' entradas') + ' más (una por integrante del grupo familiar).');
+      else if (est.alDia) throw err('Tu grupo familiar ya sacó sus ' + c.grupo + (c.grupo === 1 ? ' entrada' : ' entradas') + ' de socio para este partido.');
+      else if (socioId) throw err('Para el precio de socio tenés que estar al día (' + est.etiqueta + '). Ponete al día o sacá la entrada general desde la web.');
+      e.socio_id = s.id; e.nombre = nombreDe(s); e.dni = soloDigitos(s.dni); e.telefono = txt(s.telefono); e.email = txt(s.email);
+    } else {
+      e.nombre = (txt(d.nombre) + ' ' + txt(d.apellido)).trim(); e.dni = soloDigitos(d.dni); e.telefono = txt(d.telefono); e.email = txt(d.email).toLowerCase();
+      if (!txt(d.nombre) || (!porPanel && !txt(d.apellido))) throw err('Completá nombre y apellido.');
+      if (!porPanel && (e.dni.length < 7 || e.dni.length > 9)) throw err('Revisá el DNI.');
+      if (!porPanel && soloDigitos(e.telefono).length < 8) throw err('Dejanos un celular por si hay que avisarte algo.');
+      e.socio_id = '';
+    }
+    e.tipo = esSocio ? 'Socio' : 'General';
+    e.precio_unit = esSocio ? info.precio_socio : info.precio_general;
+    e.total = e.precio_unit * cant;
+    e.estado = porPanel || e.total === 0 ? 'Pagada' : 'Sin pagar';
+    if (porPanel && !e.medio) e.medio = 'Efectivo';
+    store.insert('Entradas', e);
+    return e;
+  }
+  function entradaPorCodigo(store, id, codigo) {
+    var e = porId(store, 'Entradas', id);
+    if (!e || txt(e.codigo).toUpperCase() !== txt(codigo).toUpperCase()) throw err('No encontramos esa entrada. Revisá el link.');
+    return e;
+  }
+  function informarEntrada(store, id, codigo, comprobante, medio) {
+    var e = entradaPorCodigo(store, id, codigo);
+    if (['Sin pagar', 'Rechazada'].indexOf(txt(e.estado)) < 0) throw err(txt(e.estado) === 'Pagada' ? 'Esa entrada ya está paga.' : 'El club ya está revisando ese pago.');
+    if (!txt(comprobante)) throw err('Subí la foto o el PDF del comprobante.');
+    e.comprobante = txt(comprobante); e.medio = txt(medio) || 'Transferencia'; e.estado = 'A confirmar';
+    store.update('Entradas', e);
+    return e;
+  }
+  function resolverEntrada(store, id, aprobar, usuario, motivo) {
+    var e = porId(store, 'Entradas', id);
+    if (!e) throw err('No se encontró la entrada.');
+    if (txt(e.estado) === 'Pagada' && aprobar) throw err('Esa entrada ya estaba confirmada.');
+    e.estado = aprobar ? 'Pagada' : 'Rechazada';
+    e.registrado_por = txt(usuario);
+    if (motivo) e.observaciones = (txt(e.observaciones) ? txt(e.observaciones) + ' · ' : '') + txt(motivo);
+    store.update('Entradas', e);
+    return e;
+  }
+  function anularEntrada(store, id) {
+    var e = porId(store, 'Entradas', id);
+    if (!e) throw err('No se encontró la entrada.');
+    if (num(e.usadas) > 0) throw err('Esa entrada ya se usó: no se puede anular.');
+    e.estado = 'Anulada'; store.update('Entradas', e);
+    return e;
+  }
+  // Lo que ve quien tiene el link de la entrada (o el socio en su carnet).
+  function vistaEntrada(store, e, conCobro) {
+    var p = porId(store, 'Partidos', e.partido_id);
+    var info = p ? infoPartido(store, p) : null;
+    var cfg = config(store, true);
+    var v = {
+      entrada: { id: e.id, codigo: e.codigo, partido_id: e.partido_id, tipo: e.tipo, nombre: e.nombre, cantidad: num(e.cantidad), usadas: num(e.usadas),
+        precio_unit: num(e.precio_unit), total: num(e.total), estado: e.estado, fecha_hora: e.fecha_hora, observaciones: e.observaciones, socio_id: e.socio_id },
+      partido: info,
+      // El QR recién viaja cuando está pagada y abrió la ventana (X horas antes del partido).
+      qr: txt(e.estado) === 'Pagada' && info && info.ventana.abierta && num(e.usadas) < num(e.cantidad) ? 'PE1:' + txt(cfg.pitazo_club_id || 'CLUB') + ':' + e.id + ':' + e.codigo : ''
+    };
+    if (conCobro && ['Sin pagar', 'Rechazada'].indexOf(txt(e.estado)) >= 0) v.cobro = { alias: cfg.cobro_alias || '', cbu: cfg.cobro_cbu || '', titular: cfg.cobro_titular || '', banco: cfg.cobro_banco || '', cuit: cfg.cobro_cuit || '', mp_link: cfg.mp_link || '', whatsapp: cfg.whatsapp || '' };
+    return v;
+  }
+  // Entradas del grupo familiar del socio + partidos en venta con su precio.
+  function entradasDelSocio(store, socio) {
+    var ids = grupoDe(store, socio).map(function (x) { return txt(x.id); });
+    if (ids.indexOf(txt(socio.id)) < 0) ids.push(txt(socio.id));
+    var est = estadoConTitular(store, socio);
+    var mias = store.rows('Entradas').filter(function (x) { return ids.indexOf(txt(x.socio_id)) >= 0 && ['Anulada'].indexOf(txt(x.estado)) < 0; })
+      .map(function (x) { return vistaEntrada(store, x, true); })
+      .filter(function (v) { return v.partido && !v.partido.ventana.paso; });
+    var partidos = partidosEnVenta(store).map(function (p) { var c = cupoSocio(store, socio, p.id); p.socio = { grupo: c.grupo, ya: c.ya, quedan: est.alDia ? c.quedan : 0, alDia: est.alDia }; return p; });
+    return { entradas: mias, partidos: partidos };
+  }
+
   // ---------- Control de acceso ----------
-  // El QR del carnet dice PC1:<club>:<socio>:<código>. También se puede buscar por DNI.
-  function validarAcceso(store, leido, lugar) {
-    var t = txt(leido), s = null, motivo = '';
+  // Carnet: PC1:<club>:<socio>:<código> (o el DNI). Entrada: PE1:<club>:<entrada>:<código>.
+  // cuantas: en una entrada familiar, cuántas personas pasan con esa lectura (1 por defecto).
+  function validarAcceso(store, leido, lugar, cuantas) {
+    var t = txt(leido), s = null, motivo = '', r;
+    var me = t.match(/^PE1:[^:]*:([^:]+):([A-Z0-9]+)$/i);
+    if (me) return validarEntrada(store, me[1], me[2], lugar, cuantas);
     var m = t.match(/^PC1:[^:]*:([^:]+):([A-Z0-9]+)$/i);
     if (m) {
       s = porId(store, 'Socios', m[1]);
@@ -315,19 +474,47 @@ var MOTOR = (function () {
     } else if (/^\d{7,9}$/.test(soloDigitos(t)) && soloDigitos(t) === t.replace(/[.\s]/g, '')) {
       s = store.rows('Socios').filter(function (x) { return soloDigitos(x.dni) === soloDigitos(t); })[0] || null;
     }
-    var r;
-    if (!s) r = { ok: false, motivo: motivo || 'No es un carnet de este club.' };
+    if (!s) r = { ok: false, tipo: 'carnet', motivo: motivo || 'No es un carnet ni una entrada de este club.' };
     else {
       var e = estadoConTitular(store, s);
       var cat = porId(store, 'Categorias', s.categoria_id);
+      var hoy = hoyISO(store);
+      var antes = store.rows('Accesos').filter(function (a) { return txt(a.socio_id) === txt(s.id) && !txt(a.entrada_id) && txt(a.resultado) === 'Permitido' && txt(a.fecha_hora).slice(0, 10) === hoy && txt(a.lugar) === txt(lugar); })[0];
       r = {
-        ok: e.alDia, motivo: e.alDia ? 'Al día' : e.etiqueta + (e.deuda ? ' · ' + plata(e.deuda) : ''),
+        ok: e.alDia, tipo: 'carnet', motivo: e.alDia ? 'Socio al día' + (antes ? ' · ya había entrado hoy a las ' + txt(antes.fecha_hora).slice(11, 16) : '') : e.etiqueta + (e.deuda ? ' · ' + plata(e.deuda) : ''),
         socio: { id: s.id, nombre: nombreDe(s), numero: s.numero, categoria: cat ? cat.nombre : '', foto: s.foto, titular: e.titular || '' }
       };
     }
     store.insert('Accesos', {
       id: nuevoId(store, 'Accesos'), fecha_hora: ahora(store), socio_id: s ? s.id : '', nombre: s ? nombreDe(s) : t.slice(0, 40),
-      resultado: r.ok ? 'Permitido' : 'Rechazado', motivo: r.motivo, lugar: txt(lugar)
+      resultado: r.ok ? 'Permitido' : 'Rechazado', motivo: r.motivo, lugar: txt(lugar), entrada_id: ''
+    });
+    return r;
+  }
+  function validarEntrada(store, id, codigo, lugar, cuantas) {
+    var e = porId(store, 'Entradas', id), r;
+    var p = e ? porId(store, 'Partidos', e.partido_id) : null;
+    if (!e || txt(e.codigo).toUpperCase() !== txt(codigo).toUpperCase()) r = { ok: false, motivo: 'Entrada falsa o anulada: el código no coincide.' };
+    else {
+      var cant = num(e.cantidad), usadas = num(e.usadas), v = p ? ventana(store, p) : null;
+      var quiere = Math.max(1, Math.floor(num(cuantas) || 1));
+      if (txt(e.estado) !== 'Pagada') r = { ok: false, motivo: txt(e.estado) === 'A confirmar' ? 'Pago sin confirmar todavía' : 'Entrada ' + txt(e.estado).toLowerCase() };
+      else if (!v) r = { ok: false, motivo: 'El partido de esta entrada ya no existe.' };
+      else if (v.antes) r = { ok: false, motivo: 'Todavía no: es para el partido del ' + diaHora(v.inicio) + '. Se habilita el ' + diaHora(v.habilita) + '.' };
+      else if (v.paso) r = { ok: false, motivo: 'Vencida: era para el partido del ' + diaHora(v.inicio) + '.' };
+      else if (usadas >= cant) r = { ok: false, motivo: cant === 1 ? 'Ya se usó a las ' + txt(e.ultimo_uso).slice(11, 16) : 'Ya entraron las ' + cant + ' personas (última ' + txt(e.ultimo_uso).slice(11, 16) + ').' };
+      else {
+        var pasan = Math.min(quiere, cant - usadas);
+        e.usadas = usadas + pasan; e.ultimo_uso = ahora(store);
+        store.update('Entradas', e);
+        r = { ok: true, motivo: cant === 1 ? 'Entrada válida' : (pasan === 1 ? 'Entra 1 · ' : 'Entran ' + pasan + ' · ') + e.usadas + ' de ' + cant + (cant - e.usadas ? ' (quedan ' + (cant - e.usadas) + ')' : ' (completa)'), pasan: pasan };
+      }
+      r.entrada = { id: e.id, nombre: e.nombre, tipo: e.tipo, cantidad: cant, usadas: num(e.usadas), quedan: Math.max(0, cant - num(e.usadas)), ultimo_uso: e.ultimo_uso, partido: p ? 'vs ' + txt(p.rival) : '' };
+    }
+    r.tipo = 'entrada';
+    store.insert('Accesos', {
+      id: nuevoId(store, 'Accesos'), fecha_hora: ahora(store), socio_id: e ? txt(e.socio_id) : '', nombre: e ? txt(e.nombre) + ' (entrada)' : 'Entrada ' + txt(id),
+      resultado: r.ok ? 'Permitido' : 'Rechazado', motivo: r.motivo, lugar: txt(lugar), entrada_id: e ? e.id : ''
     });
     return r;
   }
@@ -377,7 +564,8 @@ var MOTOR = (function () {
       sponsors: store.rows('Sponsors').slice().sort(orden),
       noticias: store.rows('Noticias').filter(function (n) { return txt(n.publicada) === 'SI'; })
         .sort(function (a, b) { return fechaISO(a.fecha) < fechaISO(b.fecha) ? 1 : -1; }).slice(0, 30),
-      socios: store.rows('Socios').filter(function (s) { return txt(s.estado || 'Activo') === 'Activo'; }).length
+      socios: store.rows('Socios').filter(function (s) { return txt(s.estado || 'Activo') === 'Activo'; }).length,
+      partidos: partidosEnVenta(store)
     };
   }
 
@@ -473,7 +661,7 @@ var MOTOR = (function () {
   }
 
   // ---------- Operaciones genéricas del panel ----------
-  var EDITABLES = ['Categorias', 'Actividades', 'Noticias', 'Sponsors', 'Usuarios', 'Cuotas'];
+  var EDITABLES = ['Categorias', 'Actividades', 'Noticias', 'Sponsors', 'Usuarios', 'Cuotas', 'Partidos'];
   function guardar(store, tabla, fila, usuario) {
     if (tabla === 'Socios') return guardarSocio(store, fila);
     if (EDITABLES.indexOf(tabla) < 0) throw err('No se puede editar ' + tabla + ' desde acá.');
@@ -487,7 +675,14 @@ var MOTOR = (function () {
       if (ya) store.update('Usuarios', f, 'email'); else store.insert('Usuarios', f);
       return f;
     }
-    if (!f.nombre && !f.titulo && tabla !== 'Cuotas') throw err('Falta el nombre.');
+    if (tabla === 'Partidos') {
+      if (!txt(f.rival)) throw err('Falta el rival.');
+      f.fecha = fechaISO(f.fecha);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(f.fecha)) throw err('Falta la fecha del partido.');
+      if (txt(f.hora)) { f.hora = horaDe(f.hora); if (!f.hora) throw err('La hora va así: 16:00'); }
+      f.precio_general = num(f.precio_general); f.precio_socio = num(f.precio_socio); f.cupo = num(f.cupo) || '';
+      f.estado = f.estado || 'Venta';
+    } else if (!f.nombre && !f.titulo && tabla !== 'Cuotas') throw err('Falta el nombre.');
     if (tabla === 'Noticias') { f.fecha = f.fecha || hoyISO(store); f.autor = f.autor || txt(usuario); f.publicada = f.publicada || 'SI'; }
     if (f.id && porId(store, tabla, f.id)) {
       var previo = porId(store, tabla, f.id);
@@ -526,6 +721,8 @@ var MOTOR = (function () {
       if (c) { c.estado = 'Anulada'; store.update('Cuotas', c); }
       return c;
     }
+    if (tabla === 'Partidos' && store.rows('Entradas').some(function (x) { return txt(x.partido_id) === txt(id) && txt(x.estado) !== 'Anulada'; }))
+      throw err('Ese partido ya tiene entradas vendidas: en vez de borrarlo, cerrá la venta.');
     if (EDITABLES.indexOf(tabla) < 0) throw err('No se puede borrar en ' + tabla + '.');
     store.remove(tabla, id, tabla === 'Usuarios' ? 'email' : 'id');
     return { id: id };
@@ -576,6 +773,8 @@ var MOTOR = (function () {
     guardarSocio: guardarSocio, eliminarSocio: eliminarSocio, ingresarSocio: ingresarSocio, paraRecuperar: paraRecuperar, mailCodigo: mailCodigo, ocultarEmail: ocultarEmail, vistaSocio: vistaSocio, nuevoCodigo: nuevoCodigo,
     generarCuotas: generarCuotas, registrarPago: registrarPago, informarPago: informarPago, resolverPago: resolverPago,
     solicitud: solicitud, aprobarSolicitud: aprobarSolicitud, validarAcceso: validarAcceso,
+    ventana: ventana, partidosEnVenta: partidosEnVenta, infoPartido: infoPartido, comprarEntrada: comprarEntrada, informarEntrada: informarEntrada,
+    resolverEntrada: resolverEntrada, anularEntrada: anularEntrada, vistaEntrada: vistaEntrada, entradaPorCodigo: entradaPorCodigo, entradasDelSocio: entradasDelSocio, cupoSocio: cupoSocio,
     resumen: resumen, publico: publico, guardar: guardar, borrar: borrar,
     borradorCronica: borradorCronica, promptCronica: promptCronica, promptResumenComision: promptResumenComision, resumenComisionSinIA: resumenComisionSinIA
   };

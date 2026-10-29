@@ -1,7 +1,8 @@
 /* Pitazo Clubs — arranque y rutas.
  *  #/                 portada        #/futbol[/tabla|llave|goleadores|plantel]
  *  #/noticias         #/noticia/ID   #/club   #/asociate
- *  #/socio[/cuenta|pagos|grupo]      carnet digital del socio
+ *  #/entradas         #/entrada/ID-CODIGO              entradas de los partidos
+ *  #/socio[/cuenta|pagos|entradas|grupo]  carnet digital del socio
  *  #/panel[/socios|cuotas|pagos|acceso|solicitudes|noticias|club]
  */
 window.PC = window.PC || {};
@@ -72,6 +73,7 @@ window.PC = window.PC || {};
       return;
     }
     PC.aplicarMarca();
+    document.getElementById('nav-entradas').hidden = !(PC.ctx.pub.partidos || []).length;
     if (DB.demo) {
       const b = document.getElementById('demo-barra');
       b.innerHTML = 'Versión de demostración: socios y pagos son de ejemplo; los partidos son los reales de Pitazo Final. <button id="demo-reset">Reiniciar demo</button>';
@@ -89,14 +91,14 @@ window.PC = window.PC || {};
     const extra = Object.fromEntries(new URLSearchParams(location.hash.split('?')[1] || ''));
     const [p0, p1] = partes;
     document.getElementById('nav').classList.remove('abierto');
-    document.querySelectorAll('#nav a').forEach(a => a.toggleAttribute('aria-current', a.dataset.ruta === (p0 === 'noticia' ? 'noticias' : p0 || '')));
+    document.querySelectorAll('#nav a').forEach(a => a.toggleAttribute('aria-current', a.dataset.ruta === (p0 === 'noticia' ? 'noticias' : p0 === 'entrada' ? 'entradas' : p0 || '')));
     if (a11y.ultimo !== p0) window.scrollTo(0, 0);
     a11y.ultimo = p0;
     if (p0 !== 'panel') PC.panel.salirVista();
     const S = PC.sitio;
     const r = {
       '': () => S.inicio(), futbol: () => S.futbol(p1), noticias: () => S.noticias(), noticia: () => S.noticia(p1),
-      club: () => S.club(), asociate: () => S.asociate(), socio: () => PC.socio.ver(p1), panel: () => PC.panel.ver(p1, extra)
+      club: () => S.club(), asociate: () => S.asociate(), entradas: () => PC.entradas.lista(), entrada: () => PC.entradas.entrada(p1), socio: () => PC.socio.ver(p1), panel: () => PC.panel.ver(p1, extra)
     }[p0 || ''] || (() => S.inicio());
     Promise.resolve(r()).catch(err => { console.error(err); u.aviso(err.message, 'mal'); });
   }

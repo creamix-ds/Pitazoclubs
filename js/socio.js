@@ -54,7 +54,7 @@ window.PC = window.PC || {};
       const b = f.querySelector('button'); b.disabled = true;
       try {
         VISTA = await DB.socioIngresar(f.dni.value, f.pin.value);
-        PESTANA = 'carnet'; pintar();
+        PESTANA = PESTANA === 'entradas' ? 'entradas' : 'carnet'; pintar();
       } catch (err) { document.getElementById('f-error').innerHTML = `<div class="error">${e(err.message)}</div>`; b.disabled = false; }
     });
   }
@@ -92,12 +92,15 @@ window.PC = window.PC || {};
   function pintar() {
     const v = VISTA, s = v.socio;
     const pend = v.cuotas.filter(c => c.estado === 'Pendiente');
+    const tk = v.tickets || { entradas: [], partidos: [] };
     const tabs = [['carnet', 'Carnet'], ['cuenta', pend.length ? `Cuotas (${pend.length})` : 'Cuotas'], ['pagos', 'Mis pagos']];
+    if (tk.partidos.length || tk.entradas.length) tabs.splice(1, 0, ['entradas', tk.entradas.some(x => x.qr) ? 'Entradas 🟢' : 'Entradas']);
     if (v.grupo.length > 1) tabs.push(['grupo', 'Familia']);
     let cuerpo = '';
     if (PESTANA === 'cuenta') cuerpo = cuenta(v);
     else if (PESTANA === 'pagos') cuerpo = historial(v);
     else if (PESTANA === 'grupo') cuerpo = grupo(v);
+    else if (PESTANA === 'entradas') cuerpo = entradas(v);
     else cuerpo = carnet(v);
     main().innerHTML = `<section class="contenedor" style="max-width:640px;padding-bottom:30px">
       <div class="socio-cab"><div><h2>Hola, ${e(s.nombre)}</h2><span class="chico">Socio N° ${e(s.numero)}${v.categoria ? ' · ' + e(v.categoria) : ''}</span></div>
@@ -108,7 +111,9 @@ window.PC = window.PC || {};
     main().querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { PESTANA = b.dataset.tab; location.hash = '#/socio/' + PESTANA; });
     document.getElementById('salir').onclick = () => { DB.socioSalir(); VISTA = null; ingreso(); };
     if (PESTANA === 'cuenta') conectarCuenta(v);
+    if (PESTANA === 'entradas') conectarEntradas(v);
     if (PESTANA === 'carnet') { const b = document.getElementById('ir-pagar'); if (b) b.onclick = () => { location.hash = '#/socio/cuenta'; }; }
+    const ie = document.getElementById('ir-entrada'); if (ie) ie.onclick = () => { location.hash = '#/socio/entradas'; };
   }
 
   function carnet(v) {
@@ -125,6 +130,7 @@ window.PC = window.PC || {};
           <span class="carnet__hora">Actualizado ${e(ahora)}</span>
         </div>
       </div>
+      ${(v.tickets && v.tickets.entradas.some(x => x.qr)) ? `<button class="aviso-entradas" id="ir-entrada" style="margin-top:16px;width:100%;text-align:left"><span>🎟️</span><div><b>Tu entrada ya está habilitada</b><small>Tocá para ver el QR del partido</small></div><span class="aviso-entradas__ir">Ver →</span></button>` : ''}
       ${!est.alDia && est.activo ? `<div class="tarjeta" style="margin-top:16px;text-align:center"><p style="margin-bottom:10px">Tenés ${est.vencidas === 1 ? 'una cuota vencida' : est.vencidas + ' cuotas vencidas'} (${u.plata(est.deuda)}). Ponete al día para entrar con el carnet.</p><button class="boton" id="ir-pagar">Pagar ahora</button></div>` : ''}
       ${v.actividades.length ? `<div class="tarjeta" style="margin-top:16px"><h3 style="margin-bottom:8px">Mis actividades</h3>${v.actividades.map(a => `<div class="fila-accion"><b>${e(a.nombre)}</b><span class="chico">${e([a.dias, a.horario].filter(Boolean).join(' · '))}</span></div>`).join('')}</div>` : ''}
       <p class="chico" style="text-align:center;margin-top:14px">Mostrá este QR en la entrada. Tip: agregá esta página a la pantalla de inicio del celular.</p>`;
@@ -207,6 +213,46 @@ window.PC = window.PC || {};
         <span class="cuotas__monto">${u.plata(p.monto)}</span><span class="estado estado--${cl[p.estado] || 'gris'}">${e(p.estado)}</span></li>`;
     }).join('')}</ul></div>`;
   }
+  // ---------- Entradas de los partidos (precio de socio, una por integrante del grupo familiar) ----------
+  function entradas(v) {
+    const tk = v.tickets, E = PC.entradas, c = PC.ctx.cfg;
+    const compra = tk.partidos.map(p => {
+      const ya = tk.entradas.filter(x => x.partido && x.partido.id === p.id);
+      const s = p.socio;
+      let accion;
+      if (!s.alDia) accion = `<p class="chico" style="margin:8px 0 0">Para el precio de socio tenés que estar al día. <a href="#/socio/cuenta">Ver mis cuotas</a> · o sacá la <a href="#/entradas">entrada general</a>.</p>`;
+      else if (!s.quedan) accion = `<p class="chico" style="margin:8px 0 0">Tu grupo familiar ya sacó ${s.grupo === 1 ? 'su entrada' : 'sus ' + s.grupo + ' entradas'} de socio para este partido.</p>`;
+      else if (p.disponibles === 0) accion = '<div class="error">Entradas agotadas.</div>';
+      else accion = `<div class="form__fila" style="margin-top:10px;align-items:end"><label class="campo"><span>${s.grupo > 1 ? `Cuántas (tu grupo familiar: ${s.grupo})` : 'Cantidad'}</span>
+          <select data-cant="${e(p.id)}">${Array.from({ length: s.quedan }, (_, i) => `<option value="${i + 1}" ${i + 1 === s.quedan ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label>
+          <button class="boton" data-sacar="${e(p.id)}" data-precio="${p.precio_socio}">Sacar ${s.quedan} · ${p.precio_socio ? u.plata(p.precio_socio * s.quedan) : 'gratis'}</button></div>`;
+      return `<div class="tarjeta" style="margin-bottom:14px"><div class="partido-venta__cab"><div><small>${e(p.torneo || 'Partido')}</small><h3>${e(c.nombre_corto || c.nombre)} vs ${e(p.rival)}</h3><span class="chico">${e(E.cuando(p))}${p.lugar ? ' · ' + e(p.lugar) : ''}</span></div></div>
+        <div class="precios-entrada"><div class="precios-entrada__socio"><small>Tu precio de socio</small><b>${p.precio_socio ? u.plata(p.precio_socio) : 'Gratis'}</b><span>General ${u.plata(p.precio_general)}</span></div></div>
+        ${ya.length && !s.quedan ? '' : accion}</div>`;
+    }).join('');
+    const mias = tk.entradas.map(x => `<div style="margin-bottom:16px">${E.ticketHtml(x)}<div data-pago="${e(x.entrada.id)}">${E.pagoHtml(x)}</div></div>`).join('');
+    return (mias ? `<h3 style="margin:4px 0 10px">Mis entradas</h3>${mias}` : '') + (compra ? `<h3 style="margin:${mias ? '22px' : '4px'} 0 10px">Partidos con entradas</h3>${compra}` : '')
+      + '<p class="chico" style="text-align:center">El QR de la entrada se habilita antes del partido y pasa una vez por cada entrada.</p>';
+  }
+  function conectarEntradas(v) {
+    const E = PC.entradas;
+    main().querySelectorAll('[data-cant]').forEach(sel => sel.onchange = () => {
+      const b = main().querySelector(`[data-sacar="${sel.dataset.cant}"]`), n = Number(sel.value), pr = Number(b.dataset.precio);
+      b.textContent = `Sacar ${n} · ${pr ? u.plata(pr * n) : 'gratis'}`;
+    });
+    main().querySelectorAll('[data-sacar]').forEach(b => b.onclick = async () => {
+      const n = Number(main().querySelector(`[data-cant="${b.dataset.sacar}"]`).value);
+      b.disabled = true; b.textContent = 'Reservando…';
+      try { const r = await DB.socioEntrada(b.dataset.sacar, n); VISTA = r.vista; u.aviso(r.entrada.entrada.total ? 'Reservada. Pagá y subí el comprobante.' : '¡Listo! Ya tenés tus entradas.', 'ok'); pintar(); }
+      catch (x) { u.aviso(x.message, 'mal'); b.disabled = false; b.textContent = 'Reintentar'; }
+    });
+    v.tickets.entradas.forEach(x => {
+      const box = main().querySelector(`[data-pago="${x.entrada.id}"]`);
+      if (box) E.conectarPago(box, x, async () => { VISTA = await DB.socioVista(); pintar(); });
+      E.relojHabilita(x, async () => { if (location.hash.indexOf('socio') >= 0) { VISTA = await DB.socioVista(); pintar(); } });
+    });
+  }
+
   function grupo(v) {
     return `<div class="tarjeta"><h3 style="margin-bottom:6px">Grupo familiar</h3>${v.grupo.map(g => `<div class="fila-accion"><b>${e(g.nombre)}</b><span class="chico">Socio N° ${e(g.numero)}</span></div>`).join('')}
       <p class="chico" style="margin:10px 0 0">Cada integrante entra con su propio DNI y código para ver su carnet.</p></div>`;

@@ -99,6 +99,8 @@ window.PC = window.PC || {};
           <div class="hero__partidos" id="hero-partidos"><p class="cargando">Buscando los partidos en Pitazo Final…</p></div>
         </div>
       </section>
+      ${(pub.partidos || []).slice(0, 1).map(p => `<section class="contenedor" style="padding-top:22px"><a class="aviso-entradas" href="#/entradas">
+        <span>🎟️</span><div><b>Entradas para ${e(c.nombre_corto || '')} vs ${e(p.rival)}</b><small>${e(u.fecha(p.fecha, true))}${p.hora ? ' · ' + e(p.hora) + ' h' : ''} · General ${u.plata(p.precio_general)} · Socios ${p.precio_socio ? u.plata(p.precio_socio) : 'gratis'}</small></div><span class="aviso-entradas__ir">Sacar entrada →</span></a></section>`).join('')}
       <section class="seccion contenedor" id="sec-noticias">
         <div class="seccion__titulo"><h2>Noticias</h2><a href="#/noticias">Ver todas</a></div>
         <div class="noticias" id="lista-noticias">${(pub.noticias || []).slice(0, 3).map((n, i) => tarjetaNoticia(n, false)).join('')}</div>

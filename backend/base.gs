@@ -6,8 +6,10 @@
  *  1. Creá una planilla nueva en Drive llamada "Pitazo Clubs" > Extensiones > Apps Script.
  *  2. Pegá TODO Code.gs (motor + este archivo) y guardá.
  *  3. Completá GOOGLE_CLIENT_ID abajo (el mismo que va en js/config.js).
- *  4. Ejecutá la función crearPirovano() una vez y aceptá los permisos.
- *     Crea la planilla del club, la registra en la pestaña Clubes y carga lo básico.
+ *  4. Ejecutá prepararClubes() una vez y aceptá los permisos.
+ *     Club nuevo (sin tocar este código): en la pestaña Clubes completá una fila (slug, nombre,
+ *     colores, pitazo_club_id, admin_email...) con planilla_id vacío y usá el menú
+ *     Pitazo Clubs > Crear clubes nuevos (o ejecutá crearClub()). Su web queda en .../<slug>/
  *  5. Implementar > Nueva implementación > Aplicación web.
  *     Ejecutar como: Yo. Quién tiene acceso: Cualquier persona.
  *  6. Copiá la URL /exec en API_URL de js/config.js.
@@ -15,10 +17,11 @@
  *  (la misma clave de Gemini de Pitazo Final sirve) para las crónicas y el resumen con IA.
  *
  * Cada club tiene su propia planilla (pestañas Config, Usuarios, Categorias, Actividades,
- * Socios, Cuotas, Pagos, Noticias, Sponsors, Accesos, Solicitudes). La planilla central
- * solo tiene la pestaña Clubes: slug | nombre | planilla_id | activo.
+ * Socios, Cuotas, Pagos, Noticias, Sponsors, Accesos, Solicitudes, Partidos, Entradas). Las pestañas
+ * que falten se crean solas. La planilla central solo tiene la pestaña Clubes.
  *
- * GET  ?r=publico&c=pirovano                       datos públicos de la web del club
+ * GET  ?r=publico&club=pirovano                    datos públicos de la web del club
+ *      (NO usar ?c= ni ?sid=: Apps Script los reserva y corta el pedido)
  * GET  ?r=clubes                                  lista para la portada de Pitazo Clubs
  * GET  ?r=ping                                     {"ok":true,"servicio":"Pitazo Clubs"}
  * POST (texto JSON) {accion, club, ...}:
@@ -30,19 +33,24 @@
  *   panel_sesion {token(Google)}                    -> {usuario}
  *   panel_datos {token}                             todas las tablas
  *   panel_op {token, op, args}                      -> {res, datos}
+ *   panel_acceso {token, leido, lugar, cuantas}     escaneo rápido: devuelve solo el resultado
+ *   entrada_comprar {datos}  entrada_ver {id, codigo}  entrada_pago {id, codigo, comprobante}
+ *   socio_entrada {socio_token, partido_id, cantidad}   entrada con precio de socio
  */
 
 const GOOGLE_CLIENT_ID = '513742201235-79a1b7tnk46vt8db28e8t54rqbqhrk3p.apps.googleusercontent.com'; // proyecto de Google Cloud pitazoclubs
 const CARPETA_ARCHIVOS = 'Pitazo Clubs - archivos';
 const SOCIO_DIAS = 60;                // cuánto dura la sesión del socio en el celular
+const VERSION_API = '29oct-e';        // aparece en ?r=ping: sirve para saber qué código está publicado
 
 // Qué puede hacer cada rol del panel (columna rol de la pestaña Usuarios).
 const PERMISOS = {
   admin: '*',
   tesorero: ['guardar:Socios', 'borrar:Socios', 'guardar:Cuotas', 'borrar:Cuotas', 'generarCuotas', 'registrarPago', 'resolverPago', 'enviarCodigo',
-    'aprobarSolicitud', 'rechazarSolicitud', 'validarAcceso', 'nuevoCodigo', 'resumenComision'],
+    'aprobarSolicitud', 'rechazarSolicitud', 'validarAcceso', 'nuevoCodigo', 'resumenComision',
+    'guardar:Partidos', 'borrar:Partidos', 'resolverEntrada', 'anularEntrada', 'venderEntrada'],
   prensa: ['guardar:Noticias', 'borrar:Noticias', 'redactar', 'subirArchivo'],
-  puerta: ['validarAcceso']
+  puerta: ['validarAcceso', 'venderEntrada']
 };
 
 // ---------- planilla central y de cada club ----------
@@ -65,7 +73,7 @@ function store_(planillaId) {
   const cache = {};
   function hoja(t) {
     let sh = ss.getSheetByName(t);
-    if (!sh) { sh = ss.insertSheet(t); sh.appendRow(MOTOR.TABLAS[t]); sh.setFrozenRows(1); }
+    if (!sh) { sh = ss.insertSheet(t); sh.appendRow(MOTOR.TABLAS[t]); sh.setFrozenRows(1); formatoTexto_(sh, MOTOR.TABLAS[t]); }
     return sh;
   }
   function leer(t) {
@@ -111,8 +119,14 @@ function store_(planillaId) {
     ahora: () => Utilities.formatDate(new Date(), 'America/Argentina/Buenos_Aires', 'yyyy-MM-dd HH:mm')
   };
 }
+// DNI, PIN, códigos, teléfonos y horas como texto (que Sheets no los convierta en números o fechas).
+const COLUMNAS_TEXTO = ['dni', 'pin', 'telefono', 'codigo_carnet', 'codigo', 'periodo', 'valor', 'numero', 'hora'];
+function formatoTexto_(sh, cols) {
+  COLUMNAS_TEXTO.forEach(k => { const j = cols.indexOf(k); if (j >= 0) sh.getRange(2, j + 1, 999, 1).setNumberFormat('@'); });
+}
 function fechaTexto_(d, campo) {
-  const f = /hora|fecha_hora/.test(campo) ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd';
+  if (campo === 'hora') return Utilities.formatDate(d, 'America/Argentina/Buenos_Aires', 'HH:mm');
+  const f = /fecha_hora|ultimo_uso/.test(campo) ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd';
   return Utilities.formatDate(d, 'America/Argentina/Buenos_Aires', f);
 }
 function limpio_(o) { // saca _fila y el pin antes de mandar al navegador
@@ -130,12 +144,12 @@ function tablas_(st, conPin) {
 function doGet(e) {
   try {
     const p = e.parameter || {};
-    if (p.r === 'ping' || !p.r) return json_({ ok: true, servicio: 'Pitazo Clubs' });
+    if (p.r === 'ping' || !p.r) return json_({ ok: true, servicio: 'Pitazo Clubs', version: VERSION_API });
     if (p.r === 'clubes') {  // portada de Pitazo Clubs
       return json_({ ok: true, data: clubes_().filter(c => String(c.activo || 'SI') !== 'NO').map(c => ({ slug: c.slug, nombre: c.nombre, ciudad: c.ciudad || '', escudo: c.escudo || '', color1: c.color1 || '' })) });
     }
     if (p.r === 'publico') {
-      const club = clubPorSlug_(p.c);
+      const club = clubPorSlug_(p.club);
       const cache = CacheService.getScriptCache(), k = 'pub_' + club.slug + '_' + version_(club.slug);
       const hit = cache.get(k);
       if (hit) return ContentService.createTextOutput(hit).setMimeType(ContentService.MimeType.JSON);
@@ -182,6 +196,33 @@ function accion_(club, b) {
       MOTOR.informarPago(s, id, d);
       return limpio_(MOTOR.vistaSocio(s, id));
     });
+    // ----- entradas (web pública, sin login: se accede con el link id + código) -----
+    case 'entrada_comprar': return conLock_(() => {
+      const s = st(), e = MOTOR.comprarEntrada(s, b.datos || {}, null, false);
+      tocar_(club.slug);
+      return limpio_(MOTOR.vistaEntrada(s, e, true));
+    });
+    case 'entrada_ver': { const s = st(); return limpio_(MOTOR.vistaEntrada(s, MOTOR.entradaPorCodigo(s, b.id, b.codigo), true)); }
+    case 'entrada_pago': return conLock_(() => {
+      const s = st();
+      MOTOR.entradaPorCodigo(s, b.id, b.codigo);
+      let comp = b.comprobante;
+      if (comp && /^data:/.test(comp)) comp = guardarArchivo_(club, comp, 'entrada-' + b.id, s, false);
+      const e = MOTOR.informarEntrada(s, b.id, b.codigo, comp, b.medio);
+      return limpio_(MOTOR.vistaEntrada(s, e, true));
+    });
+    case 'socio_entrada': return conLock_(() => {
+      const s = st(), id = socioDeToken_(club.slug, b.socio_token);
+      const e = MOTOR.comprarEntrada(s, { partido_id: b.partido_id, cantidad: b.cantidad }, id, false);
+      tocar_(club.slug);
+      return { entrada: limpio_(MOTOR.vistaEntrada(s, e, true)), vista: limpio_(MOTOR.vistaSocio(s, id)) };
+    });
+    // Escaneo en la puerta: valida, registra y devuelve solo el resultado (sin recargar todas las tablas).
+    case 'panel_acceso': return conLock_(() => {
+      const s = st(), ses = sesion_(club, b.token, s);
+      permitir_(ses.usuario, 'validarAcceso', {});
+      return limpio_(MOTOR.validarAcceso(s, b.leido, b.lugar, b.cuantas));
+    });
     case 'panel_sesion': return { usuario: sesion_(club, b.token, st()).usuario };
     case 'panel_datos': {
       const s = st(), ses = sesion_(club, b.token, s);
@@ -221,7 +262,10 @@ function op_(club, s, op, a, quien) {
       if (!sol) throw new Error('No se encontró la solicitud.');
       sol.estado = 'Rechazada'; s.update('Solicitudes', sol); return sol;
     }
-    case 'validarAcceso': return MOTOR.validarAcceso(s, a.leido, a.lugar);
+    case 'validarAcceso': return MOTOR.validarAcceso(s, a.leido, a.lugar, a.cuantas);
+    case 'venderEntrada': return MOTOR.comprarEntrada(s, a.datos || {}, null, true, quien);
+    case 'resolverEntrada': return MOTOR.resolverEntrada(s, a.id, !!a.aprobar, quien, a.motivo);
+    case 'anularEntrada': return MOTOR.anularEntrada(s, a.id);
     case 'nuevoCodigo': return MOTOR.nuevoCodigo(s, a.id, a.que);
     case 'enviarCodigo': {
       const soc = s.rows('Socios').filter(x => x.id === a.id)[0];
@@ -363,50 +407,108 @@ function version_(slug) { return PropertiesService.getScriptProperties().getProp
 function tocar_(slug) { PropertiesService.getScriptProperties().setProperty('v_' + slug, String(Date.now())); }
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
-// ---------- alta de clubes ----------
-/**
- * Crea la planilla de un club nuevo, con todas las pestañas, y la registra en Clubes.
- * datos: { slug, nombre, nombre_corto, pitazo_club_id, pitazo_liga_id, escudo, color1, color2, admin_email }
- */
-function crearClub(datos) {
-  if (!datos || !datos.slug) throw new Error('Falta el slug (la palabra que va en ?c=...).');
+// ---------- alta de clubes (sin tocar el código) ----------
+// En la pestaña Clubes de esta planilla, completá una fila por club y dejá planilla_id vacío:
+//   slug | nombre | planilla_id | activo | ciudad | escudo | color1 | color2 | nombre_corto | lema | pitazo_club_id | pitazo_liga_id | admin_email
+// Después: menú Pitazo Clubs > Crear clubes nuevos (o ejecutá crearClub() desde el editor).
+// La web del club queda sola en .../Pitazoclubs/<slug>/
+const COLUMNAS_CLUBES = ['slug', 'nombre', 'planilla_id', 'activo', 'ciudad', 'escudo', 'color1', 'color2', 'nombre_corto', 'lema', 'pitazo_club_id', 'pitazo_liga_id', 'admin_email'];
+
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('Pitazo Clubs')
+    .addItem('Crear clubes nuevos', 'crearClub')
+    .addItem('Preparar la pestaña Clubes', 'prepararClubes')
+    .addItem('Diagnóstico', 'diagnostico')
+    .addToUi();
+}
+function hojaClubes_() {
   let cl = central_().getSheetByName('Clubes');
-  if (!cl) { cl = central_().insertSheet('Clubes'); cl.appendRow(['slug', 'nombre', 'planilla_id', 'activo', 'ciudad', 'escudo', 'color1']); cl.setFrozenRows(1); }
-  if (clubes_().some(c => String(c.slug).toLowerCase() === datos.slug.toLowerCase())) throw new Error('Ya existe un club con slug ' + datos.slug);
+  if (!cl) { cl = central_().insertSheet('Clubes'); cl.setFrozenRows(1); }
+  const h = cl.getLastColumn() ? cl.getRange(1, 1, 1, cl.getLastColumn()).getValues()[0].map(String) : [];
+  COLUMNAS_CLUBES.forEach(k => { if (h.indexOf(k) < 0) { h.push(k); cl.getRange(1, h.length).setValue(k).setFontWeight('bold'); } });
+  return { sh: cl, h: h };
+}
+/** Agrega a la pestaña Clubes las columnas que falten (no borra nada). */
+function prepararClubes() { hojaClubes_(); aviso_('Pestaña Clubes lista. Completá una fila por club, con planilla_id vacío, y usá "Crear clubes nuevos".'); }
+
+/** Crea la planilla de cada club de la pestaña Clubes que todavía no tiene planilla_id. */
+function crearClub(datos) {
+  if (datos && datos.slug) {   // uso desde código: crearClub({ slug, nombre, ... })
+    if (clubes_().some(c => String(c.slug).toLowerCase() === String(datos.slug).toLowerCase())) throw new Error('Ya existe un club con slug ' + datos.slug);
+    const id = crearPlanillaClub_(datos), { sh, h } = hojaClubes_();
+    sh.appendRow(h.map(k => k === 'planilla_id' ? id : k === 'activo' ? 'SI' : (datos[k] || '')));
+    return id;
+  }
+  const { sh, h } = hojaClubes_();
+  const filas = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, h.length).getValues() : [];
+  const col = k => h.indexOf(k);
+  const hechos = [], errores = [];
+  filas.forEach((r, i) => {
+    const d = {}; h.forEach((k, j) => d[k] = String(r[j] === undefined ? '' : r[j]).trim());
+    if (!d.slug || d.planilla_id) return;
+    try {
+      d.slug = d.slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
+      if (!d.nombre) throw new Error('falta el nombre');
+      if (filas.some((o, k) => k !== i && String(o[col('slug')]).trim().toLowerCase() === d.slug)) throw new Error('el slug está repetido');
+      const id = crearPlanillaClub_(d);
+      sh.getRange(i + 2, col('slug') + 1).setValue(d.slug);
+      sh.getRange(i + 2, col('planilla_id') + 1).setValue(id);
+      if (!d.activo) sh.getRange(i + 2, col('activo') + 1).setValue('SI');
+      hechos.push(d.nombre + ' → /' + d.slug + '/');
+    } catch (err) { errores.push((d.nombre || d.slug) + ': ' + (err.message || err)); }
+  });
+  const msj = (hechos.length ? 'Clubes creados:\n' + hechos.join('\n') : 'No había clubes nuevos (filas con slug y sin planilla_id).') + (errores.length ? '\n\nCon problemas:\n' + errores.join('\n') : '');
+  aviso_(msj);
+  return msj;
+}
+function aviso_(m) { console.log(m); try { SpreadsheetApp.getUi().alert(m); } catch (err) {} }
+
+/** Arma la planilla del club con todas las pestañas y lo básico. Devuelve su id. */
+function crearPlanillaClub_(datos) {
   const ss = SpreadsheetApp.create('Pitazo Clubs - ' + datos.nombre);
   Object.keys(MOTOR.TABLAS).forEach((t, i) => {
     const sh = i === 0 ? ss.getSheets()[0].setName(t) : ss.insertSheet(t);
     sh.getRange(1, 1, 1, MOTOR.TABLAS[t].length).setValues([MOTOR.TABLAS[t]]).setFontWeight('bold');
     sh.setFrozenRows(1);
-    // DNI, CBU, PIN y teléfonos como texto (que no se coman los ceros).
-    ['dni', 'pin', 'telefono', 'codigo_carnet', 'periodo', 'valor', 'numero'].forEach(k => {
-      const j = MOTOR.TABLAS[t].indexOf(k);
-      if (j >= 0) sh.getRange(2, j + 1, 999, 1).setNumberFormat('@');
-    });
+    formatoTexto_(sh, MOTOR.TABLAS[t]);
   });
-  // Mover a la carpeta de Pitazo Clubs.
   try { const f = DriveApp.getFileById(ss.getId()); carpeta_(DriveApp.getRootFolder(), CARPETA_ARCHIVOS).addFile(f); DriveApp.getRootFolder().removeFile(f); } catch (err) {}
   const s = store_(ss.getId());
   const cfg = {
     nombre: datos.nombre, nombre_corto: datos.nombre_corto || datos.nombre, lema: datos.lema || '', pitazo_club_id: datos.pitazo_club_id || '',
-    pitazo_liga_id: datos.pitazo_liga_id || '', escudo: datos.escudo || '', color1: datos.color1 || '#D7261E', color2: datos.color2 || '#FFFFFF',
-    ciudad: datos.ciudad || '', cuota_vence_dia: '10'
+    pitazo_liga_id: datos.pitazo_liga_id || 'L01', escudo: datos.escudo || '', color1: datos.color1 || '#D7261E', color2: datos.color2 || '#FFFFFF',
+    ciudad: datos.ciudad || '', cuota_vence_dia: '10', entradas_horas_antes: '24'
   };
   Object.keys(cfg).forEach(k => s.insert('Config', { clave: k, valor: cfg[k] }));
   [['Activo', 8000, 'Mayores de 18.'], ['Cadete', 5000, 'Menores de 18.'], ['Grupo familiar', 15000, 'Titular + familia que vive en la misma casa.']]
     .forEach((c, i) => MOTOR.guardar(s, 'Categorias', { nombre: c[0], monto: c[1], descripcion: c[2], orden: i + 1 }));
-  if (datos.admin_email) s.insert('Usuarios', { email: datos.admin_email.toLowerCase(), nombre: '', rol: 'admin', activo: 'SI' });
-  cl.appendRow([datos.slug.toLowerCase(), datos.nombre, ss.getId(), 'SI', datos.ciudad || '', datos.escudo || '', datos.color1 || '']);
-  return ss.getUrl();
+  String(datos.admin_email || '').split(/[,;\s]+/).filter(Boolean).forEach(m => s.insert('Usuarios', { email: m.toLowerCase(), nombre: '', rol: 'admin', activo: 'SI' }));
+  return ss.getId();
 }
 
-/** Ejecutá esta función una vez para dar de alta a Pirovano. */
-function crearPirovano() {
-  const url = crearClub({
-    slug: 'pirovano', nombre: 'Club Deportivo Pirovano', nombre_corto: 'Deportivo Pirovano', lema: 'Pirovano está',
-    pitazo_club_id: 'CL06', pitazo_liga_id: 'L01', ciudad: 'Pirovano, partido de Bolívar',
-    escudo: 'https://lh3.googleusercontent.com/d/1oMxLbfoEdBNMqrP8tEZHbgXsFIoHBwcP', color1: '#D7261E', color2: '#FFFFFF',
-    admin_email: 'creamixds@gmail.com'
+/** Ejecutala una vez desde el editor cuando Google pida permisos nuevos (Gmail, Drive, conexiones externas). */
+function autorizar() {
+  console.log('Mails disponibles hoy: ' + MailApp.getRemainingDailyQuota());
+  console.log('Drive: ' + DriveApp.getRootFolder().getName() + ' · Planilla: ' + SpreadsheetApp.getActiveSpreadsheet().getName());
+  UrlFetchApp.fetch('https://www.google.com', { muteHttpExceptions: true });
+  console.log('Permisos OK. Ahora: Implementar > Gestionar implementaciones > editar > Nueva versión.');
+}
+
+/** Hace los mismos pedidos que la web y muestra la respuesta en el registro. */
+function diagnostico() {
+  console.log('Versión del código guardado: ' + VERSION_API);
+  console.log('Planilla central: ' + central_().getName() + ' · pestañas: ' + central_().getSheets().map(x => x.getName()).join(', '));
+  const primero = (clubes_()[0] || {}).slug || 'pirovano';
+  [['ping', {}], ['clubes', {}], ['publico', { club: primero }]].forEach(([r, extra]) => {
+    try {
+      const out = doGet({ parameter: Object.assign({ r: r }, extra) }).getContent();
+      console.log('?r=' + r + ' → ' + out.slice(0, 400));
+    } catch (err) { console.log('?r=' + r + ' → ERROR: ' + (err.stack || err)); }
   });
-  console.log('Planilla de Pirovano: ' + url);
+  clubes_().forEach(c => {
+    try {
+      const ss = SpreadsheetApp.openById(c.planilla_id);
+      console.log(c.slug + ': ' + ss.getName() + ' · socios: ' + (ss.getSheetByName('Socios').getLastRow() - 1));
+    } catch (err) { console.log(c.slug + ' → ERROR: ' + (err.message || err)); }
+  });
 }

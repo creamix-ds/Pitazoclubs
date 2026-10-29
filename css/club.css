@@ -384,3 +384,37 @@ body.en-portada .hero::after { background: linear-gradient(90deg, var(--c1) 0%, 
 
 /* Casillas y opciones dentro de un campo: tamaño normal (no como los cuadros de texto) */
 .campo input[type=checkbox], .campo input[type=radio] { width: 18px; height: 18px; min-height: 0; padding: 0; border: 0; box-shadow: none; flex: none; }
+
+/* ---------- Entradas de los partidos ---------- */
+.entrada { position: relative; max-width: 380px; margin: 0 auto; border-radius: 18px; overflow: hidden; background: var(--tinta, #1A1A1A); color: #fff; box-shadow: 0 14px 40px rgba(0,0,0,.22); }
+.entrada::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 6px; background: linear-gradient(90deg, var(--c1) 0 70%, var(--c2) 70% 80%, var(--c1) 80%); }
+.entrada > * { position: relative; }
+.entrada__cab { display: flex; align-items: center; gap: 12px; padding: 18px 18px 6px; font-weight: 850; font-stretch: 72%; text-transform: uppercase; line-height: 1.05; }
+.entrada__cab small { display: block; font-weight: 600; font-size: .72rem; letter-spacing: .14em; opacity: .8; }
+.entrada__n { margin-left: auto; background: var(--c1); color: var(--sobre-c1, #fff); border-radius: 999px; padding: 4px 10px; font-size: .78rem; white-space: nowrap; }
+.entrada__rival { padding: 8px 18px 0; font-size: 1.9rem; font-weight: 900; font-stretch: 70%; line-height: 1; text-transform: uppercase; }
+.entrada__datos { display: flex; gap: 6px 14px; padding: 6px 18px 14px; font-size: .88rem; opacity: .9; flex-wrap: wrap; }
+.entrada__qr { background: #fff; color: var(--tinta); margin: 0 14px; border-radius: 12px 12px 0 0; padding: 16px 14px; display: grid; justify-items: center; gap: 6px; text-align: center; min-height: 150px; align-content: center; }
+.entrada__qr svg { width: 200px; height: 200px; }
+.entrada__candado { font-size: 2.2rem; line-height: 1; }
+.entrada__pie { margin: 0 14px 14px; background: #fff; color: var(--tinta-2); border-top: 2px dashed var(--linea); border-radius: 0 0 12px 12px; padding: 10px 14px; display: flex; justify-content: space-between; gap: 10px; font-size: .82rem; }
+.aviso-entradas { display: flex; align-items: center; gap: 14px; background: var(--c1-suave); border: 2px solid var(--c1); border-radius: var(--radio); padding: 12px 16px; color: var(--tinta); text-decoration: none; cursor: pointer; font: inherit; }
+.aviso-entradas > span:first-child { font-size: 1.8rem; }
+.aviso-entradas b { display: block; }
+.aviso-entradas small { color: var(--tinta-2); }
+.aviso-entradas__ir { margin-left: auto; font-weight: 800; color: var(--c1-osc); white-space: nowrap; }
+@media (max-width: 560px) { .aviso-entradas__ir { display: none; } }
+.partido-venta__cab small { color: var(--tinta-2); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; font-size: .75rem; }
+.partido-venta__cab h3 { font-size: 1.35rem; margin: 2px 0; }
+.precios-entrada { display: flex; gap: 12px; margin: 14px 0; flex-wrap: wrap; }
+.precios-entrada > div { flex: 1; min-width: 140px; border: 1px solid var(--linea); border-radius: var(--radio-chico); padding: 10px 14px; }
+.precios-entrada small { color: var(--tinta-2); font-weight: 700; font-size: .78rem; text-transform: uppercase; }
+.precios-entrada b { display: block; font-size: 1.6rem; font-weight: 900; font-stretch: 72%; }
+.precios-entrada span { font-size: .8rem; color: var(--tinta-2); }
+.precios-entrada__socio { background: var(--c1-suave); border-color: var(--c1) !important; }
+.kpis--chicos .kpi { padding: 10px 12px; box-shadow: none; background: #FAF9F7; }
+.kpis--chicos .kpi b { font-size: 1.4rem; }
+.entradas-uso { display: flex; gap: 6px; margin-top: 8px; }
+.entradas-uso i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #fff; }
+.entradas-uso i.si { background: #fff; }
+.resultado-acceso__etapa { display: block; margin-top: 8px; font-size: .8rem; opacity: .85; }

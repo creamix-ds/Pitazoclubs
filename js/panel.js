@@ -84,12 +84,13 @@ window.PC = window.PC || {};
 
   const MENU = [
     ['inicio', 'Inicio', '🏠'], ['socios', 'Socios', '👥'], ['cuotas', 'Cuotas', '🧾'], ['pagos', 'Pagos', '💵'],
-    ['acceso', 'Control de acceso', '📷'], ['solicitudes', 'Solicitudes', '✉️'], ['noticias', 'Noticias', '📰'], ['club', 'Ajustes del club', '⚙️']
+    ['acceso', 'Control de acceso', '📷'], ['entradas', 'Entradas', '🎟️'], ['solicitudes', 'Solicitudes', '✉️'], ['noticias', 'Noticias', '📰'], ['club', 'Ajustes del club', '⚙️']
   ];
   function marco(extra) {
     const c = cfg();
     const burbuja = {
       pagos: tabla('Pagos').filter(p => p.estado === 'A confirmar').length,
+      entradas: tabla('Entradas').filter(x => x.estado === 'A confirmar').length,
       solicitudes: tabla('Solicitudes').filter(s => s.estado === 'Nueva').length
     };
     main().innerHTML = `<div class="panel">
@@ -104,7 +105,7 @@ window.PC = window.PC || {};
     document.getElementById('salir').onclick = () => { DB.panelSalir(); DATA = null; USUARIO = null; login(); };
     const rd = document.getElementById('reiniciar');
     if (rd) rd.onclick = () => { if (confirm('¿Volver los datos de la demo al estado inicial?')) { DB.reiniciarDemo(); DATA = null; location.reload(); } };
-    const fn = { inicio, socios, cuotas, pagos, acceso, solicitudes, noticias, club }[SECCION] || inicio;
+    const fn = { inicio, socios, cuotas, pagos, acceso, entradas, solicitudes, noticias, club }[SECCION] || inicio;
     fn(document.getElementById('pm'), extra);
   }
   const titulo = (t, acciones) => `<div class="panel__titulo"><h1>${t}</h1><div style="display:flex;gap:8px;flex-wrap:wrap">${acciones || ''}</div></div>`;
@@ -316,7 +317,7 @@ window.PC = window.PC || {};
     };
   }
   // Repinta la sección de atrás sin cerrar el diálogo.
-  function refrescar() { const pm = document.getElementById('pm'); if (!pm) return; const fn = { inicio, socios, cuotas, pagos, acceso, solicitudes, noticias, club }[SECCION]; if (fn && SECCION !== 'acceso') fn(pm); }
+  function refrescar() { const pm = document.getElementById('pm'); if (!pm) return; const fn = { inicio, socios, cuotas, pagos, acceso, entradas, solicitudes, noticias, club }[SECCION]; if (fn && SECCION !== 'acceso') fn(pm); }
 
   // ---------- Cuotas ----------
   function cuotas(el) {
@@ -404,65 +405,117 @@ window.PC = window.PC || {};
   }
 
   // ---------- Control de acceso ----------
-  let STREAM = null, LEYENDO = false, ULTIMO = { t: '', h: 0 };
+  // Sirve para el carnet del socio (PC1:...) y para las entradas de los partidos (PE1:...).
+  // Para que sea rápido: el resultado se calcula al instante con los datos ya cargados en el panel
+  // y se registra en el servidor con un pedido liviano (no recarga todas las tablas).
+  let STREAM = null, LEYENDO = false, ULTIMO = { t: '', h: 0 }, TURNO = 0;
   function pararCamara() { LEYENDO = false; if (STREAM) { STREAM.getTracks().forEach(t => t.stop()); STREAM = null; } }
   window.addEventListener('hashchange', pararCamara);
+  const lugarActual = () => document.getElementById('lugar') ? document.getElementById('lugar').value : '';
   function acceso(el) {
     const hoy = tabla('Accesos').filter(a => String(a.fecha_hora).slice(0, 10) === u.hoy()).sort((a, b) => a.fecha_hora < b.fecha_hora ? 1 : -1);
-    el.innerHTML = titulo('Control de acceso') + `
+    const prox = M.partidosEnVenta(ro()).filter(p => p.ventana.abierta)[0];
+    el.innerHTML = titulo('Control de acceso', prox ? `<button class="boton boton--gris" id="vender-ya">🎟️ Vender entrada</button>` : '') + `
+      ${prox ? `<div class="tarjeta" style="margin-bottom:14px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center"><span>🎟️ Entradas habilitadas: <b>vs ${e(prox.rival)}</b> · ${e(u.fecha(prox.fecha, true))}${prox.hora ? ' ' + e(prox.hora) + ' h' : ''}</span><span class="chico">${ingresaron(prox.id)} ingresaron con entrada</span></div>` : ''}
       <div class="grilla-2">
         <div>
           <div class="lector" id="lector"><video id="video" playsinline muted></video><div class="lector__marco"></div></div>
           <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="boton" id="camara">📷 Abrir cámara</button>
             <label class="campo" style="flex:1;min-width:160px"><input id="lugar" placeholder="Lugar (ej: Cancha, Pileta)" value="${e(sessionStorage.getItem('pc_lugar') || 'Entrada')}"></label></div>
-          <form id="f-dni" style="display:flex;gap:8px;margin-top:10px"><input class="buscar" id="dni" inputmode="numeric" placeholder="O escribí el DNI"><button class="boton boton--gris">Buscar</button></form>
+          <form id="f-dni" style="display:flex;gap:8px;margin-top:10px"><input class="buscar" id="dni" inputmode="numeric" placeholder="O escribí el DNI del socio"><button class="boton boton--gris">Buscar</button></form>
         </div>
         <div>
-          <div id="resultado"><div class="tarjeta"><p class="chico" style="margin:0">Apuntá la cámara al QR del carnet digital del socio. Si está al día se pone verde; si debe cuotas, rojo.</p></div></div>
-          <div class="tarjeta" style="margin-top:14px"><h3 style="margin-bottom:6px">Ingresos de hoy (${hoy.length})</h3>
-            <div id="log">${hoy.slice(0, 12).map(a => `<div class="fila-accion"><span><b>${e(a.nombre)}</b> <span class="chico">${e(String(a.fecha_hora).slice(11, 16))} · ${e(a.lugar)}</span></span><span class="estado estado--${a.resultado === 'Permitido' ? 'ok' : 'mal'}">${e(a.resultado)}</span></div>`).join('') || '<p class="chico" style="margin:0">Todavía nadie.</p>'}</div></div>
+          <div id="resultado"><div class="tarjeta"><p class="chico" style="margin:0">Apuntá la cámara al QR del carnet del socio o de la entrada del partido. Verde pasa; rojo no.</p></div></div>
+          <div class="tarjeta" style="margin-top:14px"><h3 style="margin-bottom:6px">Ingresos de hoy (<span id="n-hoy">${hoy.length}</span>)</h3>
+            <div id="log">${hoy.slice(0, 15).map(a => filaLog(a.nombre, String(a.fecha_hora).slice(11, 16), a.lugar, a.resultado === 'Permitido')).join('') || '<p class="chico" style="margin:0">Todavía nadie.</p>'}</div></div>
         </div>
       </div>`;
     document.getElementById('lugar').onchange = ev => sessionStorage.setItem('pc_lugar', ev.target.value);
-    document.getElementById('f-dni').onsubmit = ev => { ev.preventDefault(); const v = document.getElementById('dni').value; if (v) validar(v); };
+    document.getElementById('f-dni').onsubmit = ev => { ev.preventDefault(); const v = document.getElementById('dni').value; if (v) validar(v, 1, true); };
     document.getElementById('camara').onclick = abrirCamara;
+    const vy = document.getElementById('vender-ya');
+    if (vy) vy.onclick = () => venderEntrada(prox.id);
   }
-  async function validar(leido) {
+  const filaLog = (n, h, l, ok) => `<div class="fila-accion"><span><b>${e(n)}</b> <span class="chico">${e(h)}${l ? ' · ' + e(l) : ''}</span></span><span class="estado estado--${ok ? 'ok' : 'mal'}">${ok ? 'Permitido' : 'Rechazado'}</span></div>`;
+  const ingresaron = pid => tabla('Entradas').filter(x => x.partido_id === pid).reduce((a, x) => a + u.num(x.usadas), 0);
+
+  // Calcula el resultado con una copia de los datos del panel (no guarda nada).
+  function previa(leido, lugar, cuantas) {
+    const copias = {};
+    const st = { rows: t => copias[t] || (copias[t] = (DATA[t] || []).map(x => Object.assign({}, x))), insert() {}, update() {}, remove() {}, hoy: () => u.hoy(), ahora: () => u.ahora() };
+    try { return M.validarAcceso(st, leido, lugar, cuantas); } catch (x) { return null; }
+  }
+  async function validar(leido, cuantas, forzar) {
     const ahora = Date.now();
-    if (leido === ULTIMO.t && ahora - ULTIMO.h < 4000) return; // mismo QR seguido
+    if (!forzar && leido === ULTIMO.t && ahora - ULTIMO.h < 5000) return; // el mismo QR sigue frente a la cámara
     ULTIMO = { t: leido, h: ahora };
+    const turno = ++TURNO, lugar = lugarActual();
+    const pre = previa(leido, lugar, cuantas);
+    if (pre) { mostrar(pre, leido, 'registrando'); senal(pre.ok); }
     try {
-      const r = await op('validarAcceso', { leido, lugar: document.getElementById('lugar') ? document.getElementById('lugar').value : '' });
-      try { navigator.vibrate && navigator.vibrate(r.ok ? 80 : [80, 60, 80]); } catch (x) {}
-      pitido(r.ok);
-      const box = document.getElementById('resultado');
-      if (box) box.innerHTML = `<div class="resultado-acceso resultado-acceso--${r.ok ? 'ok' : 'mal'}">
-        <div class="avatar" style="background:rgba(255,255,255,.2);width:64px;height:64px">${r.socio ? e(u.iniciales(r.socio.nombre)) : '?'}</div>
-        <div><b>${r.ok ? 'ADELANTE' : 'NO PASA'}</b><div style="font-size:1.15rem;font-weight:700;margin-top:6px">${r.socio ? e(r.socio.nombre) + ' · N° ' + e(r.socio.numero) : ''}</div>
-        <div>${e(r.motivo)}${r.socio && r.socio.categoria ? ' · ' + e(r.socio.categoria) : ''}</div>
-        ${r.socio && !r.ok ? `<button class="boton boton--blanco boton--chico" style="margin-top:8px" data-socio="${e(r.socio.id)}">Cobrar ahora</button>` : ''}</div></div>`;
-      if (box) box.querySelectorAll('[data-socio]').forEach(b => b.onclick = () => fichaSocio(b.dataset.socio, 'cuenta'));
+      const r = await DB.acceso(leido, lugar, cuantas);
+      // Actualizar lo cargado en el panel para que la próxima lectura ya sepa lo que pasó.
+      if (r.entrada) { const x = tabla('Entradas').find(y => y.id === r.entrada.id); if (x) { x.usadas = r.entrada.usadas; x.ultimo_uso = r.entrada.ultimo_uso; } }
+      (DATA.Accesos = DATA.Accesos || []).push({ id: 'tmp' + ahora, fecha_hora: u.ahora(), socio_id: r.socio ? r.socio.id : '', nombre: r.socio ? r.socio.nombre : r.entrada ? r.entrada.nombre + ' (entrada)' : 'Desconocido', resultado: r.ok ? 'Permitido' : 'Rechazado', motivo: r.motivo, lugar, entrada_id: r.entrada ? r.entrada.id : '' });
+      if (turno === TURNO) mostrar(r, leido, 'ok');
+      if (!pre || pre.ok !== r.ok) senal(r.ok);
       const log = document.getElementById('log');
-      if (log) { const vacio = log.querySelector('p.chico'); if (vacio) vacio.remove(); }
-      if (log) log.insertAdjacentHTML('afterbegin', `<div class="fila-accion"><span><b>${e(r.socio ? r.socio.nombre : 'Desconocido')}</b> <span class="chico">${u.ahora().slice(11)}</span></span><span class="estado estado--${r.ok ? 'ok' : 'mal'}">${r.ok ? 'Permitido' : 'Rechazado'}</span></div>`);
-    } catch (x) { /* el aviso ya se mostró */ }
+      if (log) {
+        const vacio = log.querySelector('p.chico'); if (vacio) vacio.remove();
+        log.insertAdjacentHTML('afterbegin', filaLog(r.socio ? r.socio.nombre : r.entrada ? r.entrada.nombre + ' (entrada' + (r.pasan > 1 ? ' x' + r.pasan : '') + ')' : 'Desconocido', u.ahora().slice(11), lugar, r.ok));
+        const n = document.getElementById('n-hoy'); if (n) n.textContent = Number(n.textContent) + 1;
+      }
+    } catch (x) {
+      if (turno === TURNO) mostrar(pre || { ok: false, motivo: x.message }, leido, 'error', x.message);
+    }
+  }
+  function senal(ok) {
+    try { navigator.vibrate && navigator.vibrate(ok ? 80 : [80, 60, 80]); } catch (x) {}
+    pitido(ok);
+  }
+  function mostrar(r, leido, fase, error) {
+    const box = document.getElementById('resultado');
+    if (!box) return;
+    const en = r.entrada, so = r.socio;
+    const quien = so ? e(so.nombre) + ' · N° ' + e(so.numero) : en ? e(en.nombre) : '';
+    const etapa = fase === 'registrando' ? '<span class="resultado-acceso__etapa">Registrando…</span>'
+      : fase === 'error' ? `<span class="resultado-acceso__etapa">⚠ No se pudo registrar: ${e(error)}</span>` : '<span class="resultado-acceso__etapa">✓ Registrado</span>';
+    box.innerHTML = `<div class="resultado-acceso resultado-acceso--${r.ok ? 'ok' : 'mal'}">
+      <div class="avatar" style="background:rgba(255,255,255,.2);width:64px;height:64px">${en ? '🎟️' : so ? e(u.iniciales(so.nombre)) : '?'}</div>
+      <div><b>${r.ok ? 'ADELANTE' : 'NO PASA'}</b>
+        <div style="font-size:1.15rem;font-weight:700;margin-top:6px">${quien}</div>
+        <div>${e(r.motivo)}${so && so.categoria ? ' · ' + e(so.categoria) : ''}${en ? ' · ' + e(en.tipo === 'Socio' ? 'Entrada socio' : 'Entrada general') + (en.partido ? ' ' + e(en.partido) : '') : ''}</div>
+        ${en && en.cantidad > 1 ? `<div class="entradas-uso">${Array.from({ length: en.cantidad }, (_, i) => `<i class="${i < en.usadas ? 'si' : ''}"></i>`).join('')}</div>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          ${r.ok && en && en.quedan > 0 && fase !== 'registrando' ? `<button class="boton boton--blanco boton--chico" id="pasan-todas">Pasan las ${en.quedan} que quedan</button>` : ''}
+          ${so && !r.ok ? `<button class="boton boton--blanco boton--chico" data-socio="${e(so.id)}">Cobrar ahora</button>` : ''}
+        </div>
+        ${etapa}</div></div>`;
+    box.querySelectorAll('[data-socio]').forEach(b => b.onclick = () => fichaSocio(b.dataset.socio, 'cuenta'));
+    const pt = box.querySelector('#pasan-todas');
+    if (pt) pt.onclick = () => validar(leido, en.quedan, true);
   }
   function pitido(ok) {
     try {
-      const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain();
+      const a = PC._audio || (PC._audio = new (window.AudioContext || window.webkitAudioContext)()), o = a.createOscillator(), g = a.createGain();
       o.frequency.value = ok ? 880 : 220; o.connect(g); g.connect(a.destination); g.gain.value = .08; o.start(); o.stop(a.currentTime + (ok ? .15 : .4));
     } catch (x) {}
   }
   async function abrirCamara() {
     const video = document.getElementById('video');
-    try { STREAM = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false }); }
+    try { STREAM = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }); }
     catch (x) { return u.aviso('No se pudo abrir la cámara. Revisá el permiso del navegador.', 'mal'); }
     video.srcObject = STREAM; await video.play();
     document.getElementById('camara').textContent = 'Cámara abierta';
+    pitido(true); // desbloquea el sonido en iPhone (necesita un toque del usuario)
     let detector = null;
-    if ('BarcodeDetector' in window) { try { detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch (x) { detector = null; } }
+    if ('BarcodeDetector' in window) {
+      try { const f = await BarcodeDetector.getSupportedFormats(); if (f.includes('qr_code')) detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch (x) { detector = null; }
+    }
     if (!detector && !window.jsQR) await new Promise(ok => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js'; s.onload = ok; s.onerror = ok; document.head.appendChild(s); });
-    const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+    // Se lee solo el centro de la imagen y achicado: en celulares es varias veces más rápido.
+    const LADO = 420, canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+    canvas.width = canvas.height = LADO;
     LEYENDO = true;
     const ciclo = async () => {
       if (!LEYENDO || !document.getElementById('video')) return pararCamara();
@@ -470,15 +523,190 @@ window.PC = window.PC || {};
         let texto = '';
         if (detector) { const r = await detector.detect(video); if (r[0]) texto = r[0].rawValue; }
         else if (window.jsQR && video.videoWidth) {
-          canvas.width = video.videoWidth; canvas.height = video.videoHeight; ctx.drawImage(video, 0, 0);
-          const r = jsQR(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { inversionAttempts: 'dontInvert' });
+          const w = video.videoWidth, h = video.videoHeight, lado = Math.min(w, h) * 0.8;
+          ctx.drawImage(video, (w - lado) / 2, (h - lado) / 2, lado, lado, 0, 0, LADO, LADO);
+          const r = jsQR(ctx.getImageData(0, 0, LADO, LADO).data, LADO, LADO, { inversionAttempts: 'dontInvert' });
           if (r) texto = r.data;
         }
-        if (texto) await validar(texto);
+        if (texto) validar(texto); // sin await: la cámara sigue leyendo mientras se registra
       } catch (x) {}
-      setTimeout(ciclo, 250);
+      setTimeout(ciclo, 90);
     };
     ciclo();
+  }
+
+  // ---------- Entradas de los partidos ----------
+  const ESTADO_ENT = { Pagada: 'ok', 'A confirmar': 'espera', 'Sin pagar': 'gris', Rechazada: 'mal', Anulada: 'gris' };
+  const resumenPartido = pid => {
+    const es = tabla('Entradas').filter(x => x.partido_id === pid);
+    const pag = es.filter(x => x.estado === 'Pagada');
+    return {
+      vendidas: pag.reduce((a, x) => a + u.num(x.cantidad), 0), recaudado: pag.reduce((a, x) => a + u.num(x.total), 0),
+      aConfirmar: es.filter(x => x.estado === 'A confirmar').length, sinPagar: es.filter(x => x.estado === 'Sin pagar').length,
+      ingresaron: es.reduce((a, x) => a + u.num(x.usadas), 0), socios: pag.filter(x => x.tipo === 'Socio').reduce((a, x) => a + u.num(x.cantidad), 0)
+    };
+  };
+  const cuandoQR = v => v.abierta ? '<span class="estado estado--ok">QR habilitado</span>' : v.paso ? '<span class="estado estado--gris">Ya se jugó</span>'
+    : `<span class="chico">El QR se habilita el ${e(u.fecha(v.habilita.slice(0, 10), true))} a las ${e(v.habilita.slice(11))}</span>`;
+  function entradas(el) {
+    const st = ro(), c = cfg();
+    const todos = tabla('Partidos').map(p => M.infoPartido(st, p)).sort((a, b) => (a.fecha + a.hora) < (b.fecha + b.hora) ? -1 : 1);
+    const vienen = todos.filter(p => !p.ventana.paso), pasados = todos.filter(p => p.ventana.paso).reverse();
+    const aConf = tabla('Entradas').filter(x => x.estado === 'A confirmar');
+    el.innerHTML = titulo('Entradas', '<button class="boton" id="nuevo-partido">+ Partido con entradas</button>') + `
+      <p class="chico">Cada partido tiene un precio general y un precio para socios. El socio al día saca desde su carnet una entrada por cada integrante de su grupo familiar. El QR de la entrada se habilita
+        <input id="horas-antes" inputmode="numeric" value="${e(c.entradas_horas_antes || '24')}" style="width:3.2em;padding:2px 4px;border:1px solid var(--linea);border-radius:6px;text-align:center"> horas antes del partido y pasa tantas veces como entradas tenga.</p>
+      ${aConf.length ? `<div class="tarjeta" style="margin-bottom:18px"><h3 style="margin-bottom:6px">Pagos de entradas para confirmar</h3>${aConf.map(filaEntrada).join('')}</div>` : ''}
+      ${vienen.map(p => tarjetaPartidoEnt(p)).join('') || '<div class="tarjeta"><p class="chico" style="margin:0">No hay partidos con entradas. Tocá "+ Partido con entradas" (podés traerlo de Pitazo Final).</p></div>'}
+      ${pasados.length ? `<h3 style="margin:22px 0 8px">Ya jugados</h3>${pasados.slice(0, 8).map(p => tarjetaPartidoEnt(p, true)).join('')}` : ''}`;
+    document.getElementById('nuevo-partido').onclick = () => editarPartido(null);
+    const ha = document.getElementById('horas-antes');
+    ha.onchange = async () => { await op('guardarConfig', { cambios: { entradas_horas_antes: String(u.num(ha.value) || 24) } }, 'Listo: el QR se habilita ' + (u.num(ha.value) || 24) + ' h antes'); entradas(el); };
+    el.querySelectorAll('[data-ep]').forEach(b => b.onclick = () => editarPartido(b.dataset.ep));
+    el.querySelectorAll('[data-lista-ent]').forEach(b => b.onclick = () => listaEntradas(b.dataset.listaEnt));
+    el.querySelectorAll('[data-vender]').forEach(b => b.onclick = () => venderEntrada(b.dataset.vender));
+    conectarEntradas(el);
+  }
+  function tarjetaPartidoEnt(p, pasado) {
+    const r = resumenPartido(p.id), est = tabla('Partidos').find(x => x.id === p.id).estado || 'Venta';
+    return `<div class="tarjeta partido-ent" style="margin-bottom:12px">
+      <div class="fila-accion" style="border:0;padding:0;align-items:flex-start">
+        <div><h3>vs ${e(p.rival)} ${est !== 'Venta' ? `<span class="estado estado--gris">${e(est)}</span>` : ''}</h3>
+          <div class="chico">${e(u.fecha(p.fecha, true))}${p.hora ? ' · ' + e(p.hora) + ' h' : ''}${p.lugar ? ' · ' + e(p.lugar) : ''}${p.torneo ? ' · ' + e(p.torneo) : ''}</div>
+          <div style="margin-top:6px">General <b>${u.plata(p.precio_general)}</b> · Socio <b>${p.precio_socio ? u.plata(p.precio_socio) : 'gratis'}</b>${p.cupo ? ` · Cupo ${p.cupo} (quedan ${p.disponibles})` : ''}</div>
+          <div style="margin-top:6px">${pasado ? '' : cuandoQR(p.ventana)}</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${!pasado ? `<button class="boton boton--suave boton--chico" data-vender="${e(p.id)}">Vender</button>` : ''}<button class="boton boton--gris boton--chico" data-ep="${e(p.id)}">Editar</button></div></div>
+      <div class="kpis kpis--chicos" style="margin:12px 0 0">
+        <div class="kpi"><small>Vendidas</small><b>${r.vendidas}</b><span>${r.socios} de socios</span></div>
+        <div class="kpi"><small>Recaudado</small><b>${u.plata(r.recaudado)}</b><span>&nbsp;</span></div>
+        <div class="kpi"><small>Ingresaron</small><b>${r.ingresaron}</b><span>de ${r.vendidas}</span></div>
+        <div class="kpi"><small>Por confirmar</small><b style="color:var(--espera)">${r.aConfirmar}</b><span>${r.sinPagar ? r.sinPagar + ' sin pagar' : '&nbsp;'}</span></div>
+      </div>
+      <button class="link" data-lista-ent="${e(p.id)}" style="margin-top:10px">Ver las entradas →</button></div>`;
+  }
+  function filaEntrada(x) {
+    const p = tabla('Partidos').find(y => y.id === x.partido_id);
+    return `<div class="fila-accion"><div><b>${e(x.nombre)}</b> · ${u.num(x.cantidad)} ${u.num(x.cantidad) === 1 ? 'entrada' : 'entradas'} ${x.tipo === 'Socio' ? 'socio' : 'general'} · ${u.plata(x.total)}
+        <div class="chico">${p ? 'vs ' + e(p.rival) + ' · ' : ''}${e(x.dni ? 'DNI ' + x.dni : '')} ${x.telefono ? '· ' + e(x.telefono) : ''} · ${e(u.corta(x.fecha_hora))}${u.num(x.usadas) ? ' · ingresaron ' + u.num(x.usadas) : ''}</div></div>
+      <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center">
+        ${x.estado === 'A confirmar' ? `${x.comprobante ? `<button class="boton boton--gris boton--chico" data-ent-ver="${e(x.id)}">Comprobante</button>` : ''}<button class="boton boton--ok boton--chico" data-ent-ok="${e(x.id)}">Confirmar</button><button class="boton boton--gris boton--chico" data-ent-no="${e(x.id)}">Rechazar</button>`
+          : `<span class="estado estado--${ESTADO_ENT[x.estado] || 'gris'}">${e(x.estado)}</span>`}
+        ${x.estado === 'Pagada' || x.estado === 'Sin pagar' ? `<button class="boton boton--gris boton--chico" data-ent-link="${e(x.id)}">Link</button>` : ''}
+        ${!u.num(x.usadas) && x.estado !== 'Anulada' ? `<button class="boton boton--gris boton--chico" data-ent-anular="${e(x.id)}" title="Anular">✕</button>` : ''}</span></div>`;
+  }
+  function conectarEntradas(el, alTerminar) {
+    const listo = alTerminar || (() => { cerrar(); marco(); });
+    const ent = id => tabla('Entradas').find(x => x.id === id);
+    el.querySelectorAll('[data-ent-ver]').forEach(b => b.onclick = () => {
+      const x = ent(b.dataset.entVer); let src = x.comprobante;
+      if (!/^(https?:|data:)/.test(src)) src = PC.RAIZ + src;
+      const esImg = /^data:image\//.test(src) || /\.(svg|png|jpe?g)$/i.test(src);
+      dialogo('Comprobante · ' + e(x.nombre), `${esImg ? `<img src="${e(src)}" alt="Comprobante" style="width:100%;border-radius:8px">` : `<p><a class="boton" href="${e(src)}" target="_blank" rel="noopener">Abrir comprobante ↗</a></p>`}
+        <p style="margin-top:12px">Informó <b>${u.plata(x.total)}</b> por ${u.num(x.cantidad)} ${u.num(x.cantidad) === 1 ? 'entrada' : 'entradas'}. Fijate que haya entrado en la cuenta del club.</p>
+        <div style="display:flex;gap:8px"><button class="boton boton--ok" data-ent-ok="${e(x.id)}">Confirmar</button><button class="boton boton--gris" data-ent-no="${e(x.id)}">Rechazar</button></div>`, d => conectarEntradas(d, alTerminar));
+    });
+    el.querySelectorAll('[data-ent-ok]').forEach(b => b.onclick = async () => { await op('resolverEntrada', { id: b.dataset.entOk, aprobar: true }, 'Entrada confirmada: ya tiene su QR'); listo(); });
+    el.querySelectorAll('[data-ent-no]').forEach(b => b.onclick = async () => {
+      const motivo = prompt('¿Por qué se rechaza? (lo ve quien compró)', 'No encontramos la transferencia');
+      if (motivo === null) return;
+      await op('resolverEntrada', { id: b.dataset.entNo, aprobar: false, motivo }, 'Pago rechazado'); listo();
+    });
+    el.querySelectorAll('[data-ent-anular]').forEach(b => b.onclick = async () => { if (confirm('¿Anular esta entrada? El QR deja de servir.')) { await op('anularEntrada', { id: b.dataset.entAnular }, 'Entrada anulada'); listo(); } });
+    el.querySelectorAll('[data-ent-link]').forEach(b => b.onclick = () => {
+      const x = ent(b.dataset.entLink), link = DB.linkEntrada(x), p = tabla('Partidos').find(y => y.id === x.partido_id);
+      const texto = `Hola ${x.nombre.split(' ')[0]}! Tu entrada para ${cfg().nombre_corto || cfg().nombre} vs ${p ? p.rival : ''}: ${link} (el QR se habilita antes del partido).`;
+      dialogo('Link de la entrada', `<p class="chico">Con este link se ve la entrada y su QR.</p><div class="dato-cobro"><div><small>Link</small><b style="word-break:break-all;font-size:.9rem">${e(link)}</b></div><button class="boton boton--suave boton--chico" id="cp">Copiar</button></div>
+        ${x.telefono ? `<a class="boton boton--ancho" style="margin-top:10px" target="_blank" rel="noopener" href="${e(u.wa(x.telefono, texto))}">Mandar por WhatsApp</a>` : ''}`, d => { d.querySelector('#cp').onclick = () => u.copiar(link); });
+    });
+  }
+  function listaEntradas(pid) {
+    const p = tabla('Partidos').find(x => x.id === pid);
+    const es = tabla('Entradas').filter(x => x.partido_id === pid).sort((a, b) => a.fecha_hora < b.fecha_hora ? 1 : -1);
+    const d = dialogo('Entradas · vs ' + e(p.rival), `<input class="buscar" id="be" placeholder="Buscar por nombre o DNI"><div id="le" style="margin-top:10px"></div>`);
+    const pintar = () => {
+      const q = d.querySelector('#be').value.toLowerCase();
+      d.querySelector('#le').innerHTML = es.filter(x => !q || (x.nombre + ' ' + x.dni).toLowerCase().includes(q)).map(filaEntrada).join('') || '<p class="chico">Todavía no hay entradas.</p>';
+      conectarEntradas(d.querySelector('#le'));
+    };
+    d.querySelector('#be').oninput = pintar; pintar();
+  }
+  async function editarPartido(id) {
+    const p = id ? tabla('Partidos').find(x => x.id === id) : { estado: 'Venta', precio_general: '', precio_socio: '' };
+    const c = cfg();
+    let prox = [];
+    if (!id && c.pitazo_club_id) { try { await PZ.cargar(c.pitazo_club_id, c.pitazo_liga_id || 'L01'); prox = PZ.partidosDelClub(c.pitazo_club_id).filter(x => !PZ.resultado(x).jugado && PZ.fechaDe(x) >= u.hoy()); } catch (x) {} }
+    const etq = x => { const v = PZ.paraClub(x, c.pitazo_club_id); return `${u.corta(PZ.fechaDe(x))} · ${v.lado === 'local' ? 'vs' : 'en cancha de'} ${PZ.nombreEquipo(v.rival)}`; };
+    const d = dialogo(id ? 'Editar partido' : 'Partido con entradas', `
+      ${prox.length ? `<label class="campo" style="margin-bottom:12px"><span>Traer de Pitazo Final <small>(opcional)</small></span><select id="pz-p"><option value="">— Elegí un partido —</option>${prox.map(x => `<option value="${e(x.id)}">${e(etq(x))}</option>`).join('')}</select></label>` : ''}
+      <form class="form" id="f-partido">
+        <div class="form__fila"><label class="campo"><span>Rival</span><input name="rival" value="${e(p.rival)}" required></label><label class="campo"><span>Torneo</span><input name="torneo" value="${e(p.torneo)}"></label></div>
+        <div class="form__fila"><label class="campo"><span>Fecha</span><input name="fecha" type="date" value="${e(u.iso(p.fecha))}" required></label><label class="campo"><span>Hora</span><input name="hora" type="time" value="${e(p.hora)}"></label></div>
+        <label class="campo"><span>Cancha</span><input name="lugar" value="${e(p.lugar)}" placeholder="Cancha del club"></label>
+        <div class="form__fila"><label class="campo"><span>Precio general</span><input name="precio_general" inputmode="numeric" value="${e(p.precio_general)}" required></label><label class="campo"><span>Precio socio al día</span><input name="precio_socio" inputmode="numeric" value="${e(p.precio_socio)}" placeholder="0 = gratis"></label></div>
+        <div class="form__fila"><label class="campo"><span>Cupo <small>(vacío = sin límite)</small></span><input name="cupo" inputmode="numeric" value="${e(p.cupo)}"></label>
+          <label class="campo"><span>Venta</span><select name="estado">${[['Venta', 'Abierta'], ['Cerrado', 'Cerrada'], ['Suspendido', 'Suspendido']].map(([k, n]) => `<option value="${k}" ${k === (p.estado || 'Venta') ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>
+        <input type="hidden" name="pitazo_partido_id" value="${e(p.pitazo_partido_id)}">
+        <div id="f-error"></div>
+        <div style="display:flex;gap:8px;justify-content:space-between"><button class="boton" type="submit">Guardar</button>${id ? '<button class="boton boton--gris" type="button" id="borrar-p">Borrar</button>' : ''}</div>
+      </form>`);
+    const f = d.querySelector('#f-partido');
+    const sel = d.querySelector('#pz-p');
+    if (sel) sel.onchange = () => {
+      const x = prox.find(y => y.id === sel.value); if (!x) return;
+      const v = PZ.paraClub(x, c.pitazo_club_id), t = PZ.torneo(x.torneo_id);
+      f.rival.value = PZ.nombreEquipo(v.rival); f.fecha.value = PZ.fechaDe(x); f.hora.value = M.txt(x.hora).slice(0, 5);
+      f.torneo.value = t ? t.nombre : ''; f.lugar.value = x.cancha || ''; f.pitazo_partido_id.value = x.id;
+    };
+    f.onsubmit = async ev => {
+      ev.preventDefault();
+      const fila = Object.fromEntries(new FormData(f).entries());
+      if (id) fila.id = id;
+      try { await op('guardar', { tabla: 'Partidos', fila }, 'Partido guardado'); cerrar(); marco(); }
+      catch (x) { f.querySelector('#f-error').innerHTML = `<div class="error">${e(x.message)}</div>`; }
+    };
+    const br = d.querySelector('#borrar-p');
+    if (br) br.onclick = async () => { if (confirm('¿Borrar el partido?')) { try { await op('borrar', { tabla: 'Partidos', id }, 'Partido borrado'); cerrar(); marco(); } catch (x) {} } };
+  }
+  // Venta en la puerta o en la secretaría: queda paga en el momento.
+  function venderEntrada(pid) {
+    const p = M.infoPartido(ro(), tabla('Partidos').find(x => x.id === pid));
+    const d = dialogo('Vender entrada · vs ' + e(p.rival), `<form class="form" id="f-venta">
+      <label class="campo"><span>DNI <small>(si es socio, se aplica el precio de socio)</small></span><input name="dni" inputmode="numeric" id="v-dni"></label>
+      <div id="v-socio" class="chico"></div>
+      <label class="campo"><span>Nombre</span><input name="nombre" id="v-nombre" required></label>
+      <div class="form__fila"><label class="campo"><span>Cantidad</span><input name="cantidad" type="number" min="1" max="20" value="1" id="v-cant"></label>
+        <label class="campo"><span>Medio</span><select name="medio"><option>Efectivo</option><option>Transferencia</option><option>Mercado Pago</option></select></label></div>
+      <div class="total-pagar"><span>Total</span><b id="v-total">${u.plata(p.precio_general)}</b></div>
+      ${p.ventana.abierta ? '<label class="check" style="justify-self:start"><input type="checkbox" id="v-entran" checked> Entran ahora (se marca como usada)</label>' : ''}
+      <div id="f-error"></div>
+      <button class="boton" type="submit">Cobrar y emitir</button></form>`);
+    const f = d.querySelector('#f-venta');
+    let soc = null;
+    const recalcular = () => {
+      const dni = u.txt(f.dni.value).replace(/\D/g, ''), cant = Math.max(1, u.num(f.cantidad.value) || 1);
+      soc = dni.length >= 7 ? tabla('Socios').find(s => String(s.dni).replace(/\D/g, '') === dni && s.estado !== 'Baja') : null;
+      let precio = p.precio_general, msj = '';
+      if (soc) {
+        const est = M.estadoConTitular(ro(), soc), cs = M.cupoSocio(ro(), soc, pid);
+        f.nombre.value = nombre(soc);
+        if (est.alDia && cs.quedan >= cant) { precio = p.precio_socio; msj = `✓ Socio al día: precio socio (le quedan ${cs.quedan} de ${cs.grupo} en su grupo familiar).`; }
+        else msj = est.alDia ? `Socio: ya usó las ${cs.grupo} entradas de socio de su grupo. Paga general.` : `Socio con deuda (${est.etiqueta}): paga general.`;
+      }
+      d.querySelector('#v-socio').textContent = msj;
+      d.querySelector('#v-total').textContent = u.plata(precio * cant);
+    };
+    f.dni.oninput = recalcular; f.cantidad.oninput = recalcular;
+    f.onsubmit = async ev => {
+      ev.preventDefault();
+      const datos = Object.fromEntries(new FormData(f).entries());
+      datos.partido_id = pid; if (soc) datos.socio_id = soc.id;
+      try {
+        const x = await op('venderEntrada', { datos }, r => `Entrada vendida: ${u.plata(r.total)}`);
+        const entran = d.querySelector('#v-entran');
+        if (entran && entran.checked) { await DB.acceso('PE1:' + (cfg().pitazo_club_id || 'CLUB') + ':' + x.id + ':' + x.codigo, lugarActual() || 'Boletería', x.cantidad); const y = tabla('Entradas').find(z => z.id === x.id); if (y) y.usadas = x.cantidad; }
+        cerrar(); marco();
+      } catch (x) { f.querySelector('#f-error').innerHTML = `<div class="error">${e(x.message)}</div>`; }
+    };
   }
 
   // ---------- Solicitudes ----------

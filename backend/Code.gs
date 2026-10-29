@@ -1,4 +1,3 @@
-/* Pitazo Clubs — Code.gs GENERADO: js/motor.js + backend/base.gs. Pegá TODO en un solo archivo de Apps Script. */
 /* Pitazo Clubs — motor.
  * La misma lógica corre en el navegador (modo demo) y en Apps Script (Code.gs se arma
  * pegando este archivo + backend/base.gs). No usa nada del navegador ni de Google:
@@ -19,11 +18,15 @@ var MOTOR = (function () {
     Pagos: ['id', 'socio_id', 'fecha', 'monto', 'medio', 'cuotas', 'comprobante', 'estado', 'registrado_por', 'observaciones'],
     Noticias: ['id', 'fecha', 'titulo', 'resumen', 'cuerpo', 'imagen', 'partido_id', 'publicada', 'autor'],
     Sponsors: ['id', 'nombre', 'logo', 'link', 'orden'],
-    Accesos: ['id', 'fecha_hora', 'socio_id', 'nombre', 'resultado', 'motivo', 'lugar'],
-    Solicitudes: ['id', 'fecha', 'nombre', 'apellido', 'dni', 'nacimiento', 'telefono', 'email', 'categoria_id', 'actividades', 'mensaje', 'estado', 'socio_id']
+    Accesos: ['id', 'fecha_hora', 'socio_id', 'nombre', 'resultado', 'motivo', 'lugar', 'entrada_id'],
+    Solicitudes: ['id', 'fecha', 'nombre', 'apellido', 'dni', 'nacimiento', 'telefono', 'email', 'categoria_id', 'actividades', 'mensaje', 'estado', 'socio_id'],
+    // Partidos con venta de entradas (los arma el club; se pueden traer de Pitazo Final).
+    Partidos: ['id', 'fecha', 'hora', 'rival', 'torneo', 'lugar', 'precio_general', 'precio_socio', 'cupo', 'estado', 'pitazo_partido_id', 'observaciones'],
+    Entradas: ['id', 'partido_id', 'fecha_hora', 'tipo', 'socio_id', 'nombre', 'dni', 'telefono', 'email', 'cantidad', 'precio_unit', 'total',
+      'estado', 'medio', 'comprobante', 'codigo', 'usadas', 'ultimo_uso', 'registrado_por', 'observaciones']
   };
-  var PREFIJO = { Categorias: 'CAT', Actividades: 'ACT', Socios: 'S', Cuotas: 'C', Pagos: 'PG', Noticias: 'NC', Sponsors: 'SP', Accesos: 'AC', Solicitudes: 'SOL' };
-  var DIGITOS = { Socios: 4, Cuotas: 5, Pagos: 4, Accesos: 5, Solicitudes: 4 };
+  var PREFIJO = { Categorias: 'CAT', Actividades: 'ACT', Socios: 'S', Cuotas: 'C', Pagos: 'PG', Noticias: 'NC', Sponsors: 'SP', Accesos: 'AC', Solicitudes: 'SOL', Partidos: 'PT', Entradas: 'EN' };
+  var DIGITOS = { Socios: 4, Cuotas: 5, Pagos: 4, Accesos: 5, Solicitudes: 4, Partidos: 3, Entradas: 5 };
 
   // Claves de Config que nunca salen en la web pública.
   var PRIVADAS = ['mp_access_token', 'gemini', 'secreto', 'cobro_', 'mp_link'];  // los datos de cobro los ve solo el socio que entró
@@ -189,6 +192,7 @@ var MOTOR = (function () {
       grupo: grupo.map(function (x) { return { id: x.id, nombre: nombreDe(x), numero: x.numero }; }),
       cuotas: cuotas, pagos: pagos.slice(0, 20),
       qr: 'PC1:' + txt(cfg.pitazo_club_id || 'CLUB') + ':' + s.id + ':' + txt(s.codigo_carnet),
+      tickets: entradasDelSocio(store, s),
       cobro: {
         alias: cfg.cobro_alias || '', cbu: cfg.cobro_cbu || '', titular: cfg.cobro_titular || '',
         banco: cfg.cobro_banco || '', cuit: cfg.cobro_cuit || '', mp_link: cfg.mp_link || '', whatsapp: cfg.whatsapp || ''
@@ -305,10 +309,164 @@ var MOTOR = (function () {
     return socio;
   }
 
+  // ---------- Entradas por partido ----------
+  // Cada partido tiene precio general y precio socio. El socio al día paga el precio socio, y puede
+  // sacar tantas entradas como integrantes activos tenga su grupo familiar (1 si es individual).
+  // El QR de la entrada se habilita X horas antes del partido (Config entradas_horas_antes, 24 por defecto)
+  // y se puede escanear tantas veces como entradas tenga.
+  var ESTADOS_VIVOS = ['Sin pagar', 'A confirmar', 'Pagada'];
+  function minutosDe(s) {
+    var m = txt(s).match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/);
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)) / 60000 : null;
+  }
+  function diaHora(s) { var m = txt(s).match(/^\d{4}-(\d{2})-(\d{2})(?: (\d{2}:\d{2}))?/); return m ? (+m[2]) + '/' + (+m[1]) + (m[3] ? ' ' + m[3] + ' h' : '') : txt(s); }
+  function textoMinutos(n) { return new Date(n * 60000).toISOString().slice(0, 16).replace('T', ' '); }
+  function horaDe(v) { var m = txt(v).match(/(\d{1,2})[:.](\d{2})/); return m ? pad(m[1], 2) + ':' + m[2] : ''; }
+  function ventana(store, p) {
+    var cfg = config(store, true);
+    var antes = txt(cfg.entradas_horas_antes) === '' ? 24 : num(cfg.entradas_horas_antes);
+    var fecha = fechaISO(p.fecha), hora = horaDe(p.hora);
+    var ini = minutosDe(fecha + ' ' + (hora || '00:00'));
+    if (ini === null) return { abierta: false, antes: true, paso: false, habilita: '', vence: '', inicio: '' };
+    var desde = ini - antes * 60, hasta = Math.max(ini + 6 * 60, minutosDe(fecha + ' 23:59'));
+    var ya = minutosDe(ahora(store));
+    return { abierta: ya >= desde && ya <= hasta, antes: ya < desde, paso: ya > hasta, habilita: textoMinutos(desde), vence: textoMinutos(hasta), inicio: fecha + ' ' + (hora || ''), horas: antes };
+  }
+  function entradasDe(store, partidoId) {
+    return store.rows('Entradas').filter(function (x) { return txt(x.partido_id) === txt(partidoId) && ESTADOS_VIVOS.indexOf(txt(x.estado)) >= 0; });
+  }
+  function infoPartido(store, p) {
+    var vendidas = entradasDe(store, p.id).reduce(function (a, x) { return a + num(x.cantidad); }, 0);
+    var cupo = num(p.cupo);
+    return {
+      id: p.id, fecha: fechaISO(p.fecha), hora: horaDe(p.hora), rival: txt(p.rival), torneo: txt(p.torneo), lugar: txt(p.lugar),
+      precio_general: num(p.precio_general), precio_socio: num(p.precio_socio), cupo: cupo,
+      disponibles: cupo ? Math.max(0, cupo - vendidas) : null, ventana: ventana(store, p), pitazo_partido_id: txt(p.pitazo_partido_id)
+    };
+  }
+  // Partidos con entradas a la venta (los que todavía no pasaron).
+  function partidosEnVenta(store) {
+    return store.rows('Partidos').filter(function (p) { return txt(p.estado || 'Venta') === 'Venta'; })
+      .map(function (p) { return infoPartido(store, p); })
+      .filter(function (p) { return p.fecha && !p.ventana.paso; })
+      .sort(function (a, b) { return (a.fecha + a.hora) < (b.fecha + b.hora) ? -1 : 1; });
+  }
+  // Grupo que comparte las entradas de socio: el titular y sus integrantes activos.
+  function grupoDe(store, socio) {
+    var tid = txt(socio.titular_id) || txt(socio.id);
+    return store.rows('Socios').filter(function (x) {
+      return (txt(x.id) === tid || txt(x.titular_id) === tid) && txt(x.estado || 'Activo') === 'Activo';
+    });
+  }
+  function cupoSocio(store, socio, partidoId) {
+    var ids = grupoDe(store, socio).map(function (x) { return txt(x.id); });
+    var ya = entradasDe(store, partidoId).filter(function (x) { return txt(x.tipo) === 'Socio' && ids.indexOf(txt(x.socio_id)) >= 0; })
+      .reduce(function (a, x) { return a + num(x.cantidad); }, 0);
+    return { grupo: Math.max(1, ids.length), ya: ya, quedan: Math.max(0, Math.max(1, ids.length) - ya) };
+  }
+  // d = { partido_id, cantidad, nombre, apellido, dni, telefono, email, medio, estado }
+  // socioId: si compra un socio desde su carnet. porPanel: venta en la puerta/secretaría (queda Pagada).
+  function comprarEntrada(store, d, socioId, porPanel, usuario) {
+    var p = porId(store, 'Partidos', d.partido_id);
+    if (!p || txt(p.estado || 'Venta') !== 'Venta') throw err('Ese partido no tiene entradas a la venta.');
+    var info = infoPartido(store, p);
+    if (info.ventana.paso) throw err('Ese partido ya se jugó.');
+    var cant = Math.floor(num(d.cantidad) || 1);
+    if (cant < 1 || cant > 20) throw err('Elegí entre 1 y 20 entradas.');
+    if (info.disponibles !== null && cant > info.disponibles) throw err(info.disponibles ? 'Quedan solo ' + info.disponibles + ' entradas.' : 'Se agotaron las entradas.');
+    var e = { id: nuevoId(store, 'Entradas'), partido_id: p.id, fecha_hora: ahora(store), cantidad: cant, codigo: azar(8), usadas: 0, ultimo_uso: '',
+      medio: txt(d.medio), comprobante: '', registrado_por: txt(usuario || (socioId ? 'socio' : 'web')), observaciones: txt(d.observaciones) };
+    var s = socioId ? porId(store, 'Socios', socioId) : null;
+    if (!s && porPanel && txt(d.socio_id)) s = porId(store, 'Socios', d.socio_id);
+    if (socioId && !s) throw err('Sesión vencida.');
+    var esSocio = false;
+    if (s) {
+      var est = estadoConTitular(store, s), c = cupoSocio(store, s, p.id);
+      if (est.alDia && c.quedan >= cant) esSocio = true;
+      else if (porPanel) esSocio = false; // en la puerta, si no le corresponde el precio de socio, paga general
+      else if (est.alDia && c.quedan > 0) throw err('Con el precio de socio podés sacar ' + c.quedan + (c.quedan === 1 ? ' entrada' : ' entradas') + ' más (una por integrante del grupo familiar).');
+      else if (est.alDia) throw err('Tu grupo familiar ya sacó sus ' + c.grupo + (c.grupo === 1 ? ' entrada' : ' entradas') + ' de socio para este partido.');
+      else if (socioId) throw err('Para el precio de socio tenés que estar al día (' + est.etiqueta + '). Ponete al día o sacá la entrada general desde la web.');
+      e.socio_id = s.id; e.nombre = nombreDe(s); e.dni = soloDigitos(s.dni); e.telefono = txt(s.telefono); e.email = txt(s.email);
+    } else {
+      e.nombre = (txt(d.nombre) + ' ' + txt(d.apellido)).trim(); e.dni = soloDigitos(d.dni); e.telefono = txt(d.telefono); e.email = txt(d.email).toLowerCase();
+      if (!txt(d.nombre) || (!porPanel && !txt(d.apellido))) throw err('Completá nombre y apellido.');
+      if (!porPanel && (e.dni.length < 7 || e.dni.length > 9)) throw err('Revisá el DNI.');
+      if (!porPanel && soloDigitos(e.telefono).length < 8) throw err('Dejanos un celular por si hay que avisarte algo.');
+      e.socio_id = '';
+    }
+    e.tipo = esSocio ? 'Socio' : 'General';
+    e.precio_unit = esSocio ? info.precio_socio : info.precio_general;
+    e.total = e.precio_unit * cant;
+    e.estado = porPanel || e.total === 0 ? 'Pagada' : 'Sin pagar';
+    if (porPanel && !e.medio) e.medio = 'Efectivo';
+    store.insert('Entradas', e);
+    return e;
+  }
+  function entradaPorCodigo(store, id, codigo) {
+    var e = porId(store, 'Entradas', id);
+    if (!e || txt(e.codigo).toUpperCase() !== txt(codigo).toUpperCase()) throw err('No encontramos esa entrada. Revisá el link.');
+    return e;
+  }
+  function informarEntrada(store, id, codigo, comprobante, medio) {
+    var e = entradaPorCodigo(store, id, codigo);
+    if (['Sin pagar', 'Rechazada'].indexOf(txt(e.estado)) < 0) throw err(txt(e.estado) === 'Pagada' ? 'Esa entrada ya está paga.' : 'El club ya está revisando ese pago.');
+    if (!txt(comprobante)) throw err('Subí la foto o el PDF del comprobante.');
+    e.comprobante = txt(comprobante); e.medio = txt(medio) || 'Transferencia'; e.estado = 'A confirmar';
+    store.update('Entradas', e);
+    return e;
+  }
+  function resolverEntrada(store, id, aprobar, usuario, motivo) {
+    var e = porId(store, 'Entradas', id);
+    if (!e) throw err('No se encontró la entrada.');
+    if (txt(e.estado) === 'Pagada' && aprobar) throw err('Esa entrada ya estaba confirmada.');
+    e.estado = aprobar ? 'Pagada' : 'Rechazada';
+    e.registrado_por = txt(usuario);
+    if (motivo) e.observaciones = (txt(e.observaciones) ? txt(e.observaciones) + ' · ' : '') + txt(motivo);
+    store.update('Entradas', e);
+    return e;
+  }
+  function anularEntrada(store, id) {
+    var e = porId(store, 'Entradas', id);
+    if (!e) throw err('No se encontró la entrada.');
+    if (num(e.usadas) > 0) throw err('Esa entrada ya se usó: no se puede anular.');
+    e.estado = 'Anulada'; store.update('Entradas', e);
+    return e;
+  }
+  // Lo que ve quien tiene el link de la entrada (o el socio en su carnet).
+  function vistaEntrada(store, e, conCobro) {
+    var p = porId(store, 'Partidos', e.partido_id);
+    var info = p ? infoPartido(store, p) : null;
+    var cfg = config(store, true);
+    var v = {
+      entrada: { id: e.id, codigo: e.codigo, partido_id: e.partido_id, tipo: e.tipo, nombre: e.nombre, cantidad: num(e.cantidad), usadas: num(e.usadas),
+        precio_unit: num(e.precio_unit), total: num(e.total), estado: e.estado, fecha_hora: e.fecha_hora, observaciones: e.observaciones, socio_id: e.socio_id },
+      partido: info,
+      // El QR recién viaja cuando está pagada y abrió la ventana (X horas antes del partido).
+      qr: txt(e.estado) === 'Pagada' && info && info.ventana.abierta && num(e.usadas) < num(e.cantidad) ? 'PE1:' + txt(cfg.pitazo_club_id || 'CLUB') + ':' + e.id + ':' + e.codigo : ''
+    };
+    if (conCobro && ['Sin pagar', 'Rechazada'].indexOf(txt(e.estado)) >= 0) v.cobro = { alias: cfg.cobro_alias || '', cbu: cfg.cobro_cbu || '', titular: cfg.cobro_titular || '', banco: cfg.cobro_banco || '', cuit: cfg.cobro_cuit || '', mp_link: cfg.mp_link || '', whatsapp: cfg.whatsapp || '' };
+    return v;
+  }
+  // Entradas del grupo familiar del socio + partidos en venta con su precio.
+  function entradasDelSocio(store, socio) {
+    var ids = grupoDe(store, socio).map(function (x) { return txt(x.id); });
+    if (ids.indexOf(txt(socio.id)) < 0) ids.push(txt(socio.id));
+    var est = estadoConTitular(store, socio);
+    var mias = store.rows('Entradas').filter(function (x) { return ids.indexOf(txt(x.socio_id)) >= 0 && ['Anulada'].indexOf(txt(x.estado)) < 0; })
+      .map(function (x) { return vistaEntrada(store, x, true); })
+      .filter(function (v) { return v.partido && !v.partido.ventana.paso; });
+    var partidos = partidosEnVenta(store).map(function (p) { var c = cupoSocio(store, socio, p.id); p.socio = { grupo: c.grupo, ya: c.ya, quedan: est.alDia ? c.quedan : 0, alDia: est.alDia }; return p; });
+    return { entradas: mias, partidos: partidos };
+  }
+
   // ---------- Control de acceso ----------
-  // El QR del carnet dice PC1:<club>:<socio>:<código>. También se puede buscar por DNI.
-  function validarAcceso(store, leido, lugar) {
-    var t = txt(leido), s = null, motivo = '';
+  // Carnet: PC1:<club>:<socio>:<código> (o el DNI). Entrada: PE1:<club>:<entrada>:<código>.
+  // cuantas: en una entrada familiar, cuántas personas pasan con esa lectura (1 por defecto).
+  function validarAcceso(store, leido, lugar, cuantas) {
+    var t = txt(leido), s = null, motivo = '', r;
+    var me = t.match(/^PE1:[^:]*:([^:]+):([A-Z0-9]+)$/i);
+    if (me) return validarEntrada(store, me[1], me[2], lugar, cuantas);
     var m = t.match(/^PC1:[^:]*:([^:]+):([A-Z0-9]+)$/i);
     if (m) {
       s = porId(store, 'Socios', m[1]);
@@ -316,19 +474,47 @@ var MOTOR = (function () {
     } else if (/^\d{7,9}$/.test(soloDigitos(t)) && soloDigitos(t) === t.replace(/[.\s]/g, '')) {
       s = store.rows('Socios').filter(function (x) { return soloDigitos(x.dni) === soloDigitos(t); })[0] || null;
     }
-    var r;
-    if (!s) r = { ok: false, motivo: motivo || 'No es un carnet de este club.' };
+    if (!s) r = { ok: false, tipo: 'carnet', motivo: motivo || 'No es un carnet ni una entrada de este club.' };
     else {
       var e = estadoConTitular(store, s);
       var cat = porId(store, 'Categorias', s.categoria_id);
+      var hoy = hoyISO(store);
+      var antes = store.rows('Accesos').filter(function (a) { return txt(a.socio_id) === txt(s.id) && !txt(a.entrada_id) && txt(a.resultado) === 'Permitido' && txt(a.fecha_hora).slice(0, 10) === hoy && txt(a.lugar) === txt(lugar); })[0];
       r = {
-        ok: e.alDia, motivo: e.alDia ? 'Al día' : e.etiqueta + (e.deuda ? ' · ' + plata(e.deuda) : ''),
+        ok: e.alDia, tipo: 'carnet', motivo: e.alDia ? 'Socio al día' + (antes ? ' · ya había entrado hoy a las ' + txt(antes.fecha_hora).slice(11, 16) : '') : e.etiqueta + (e.deuda ? ' · ' + plata(e.deuda) : ''),
         socio: { id: s.id, nombre: nombreDe(s), numero: s.numero, categoria: cat ? cat.nombre : '', foto: s.foto, titular: e.titular || '' }
       };
     }
     store.insert('Accesos', {
       id: nuevoId(store, 'Accesos'), fecha_hora: ahora(store), socio_id: s ? s.id : '', nombre: s ? nombreDe(s) : t.slice(0, 40),
-      resultado: r.ok ? 'Permitido' : 'Rechazado', motivo: r.motivo, lugar: txt(lugar)
+      resultado: r.ok ? 'Permitido' : 'Rechazado', motivo: r.motivo, lugar: txt(lugar), entrada_id: ''
+    });
+    return r;
+  }
+  function validarEntrada(store, id, codigo, lugar, cuantas) {
+    var e = porId(store, 'Entradas', id), r;
+    var p = e ? porId(store, 'Partidos', e.partido_id) : null;
+    if (!e || txt(e.codigo).toUpperCase() !== txt(codigo).toUpperCase()) r = { ok: false, motivo: 'Entrada falsa o anulada: el código no coincide.' };
+    else {
+      var cant = num(e.cantidad), usadas = num(e.usadas), v = p ? ventana(store, p) : null;
+      var quiere = Math.max(1, Math.floor(num(cuantas) || 1));
+      if (txt(e.estado) !== 'Pagada') r = { ok: false, motivo: txt(e.estado) === 'A confirmar' ? 'Pago sin confirmar todavía' : 'Entrada ' + txt(e.estado).toLowerCase() };
+      else if (!v) r = { ok: false, motivo: 'El partido de esta entrada ya no existe.' };
+      else if (v.antes) r = { ok: false, motivo: 'Todavía no: es para el partido del ' + diaHora(v.inicio) + '. Se habilita el ' + diaHora(v.habilita) + '.' };
+      else if (v.paso) r = { ok: false, motivo: 'Vencida: era para el partido del ' + diaHora(v.inicio) + '.' };
+      else if (usadas >= cant) r = { ok: false, motivo: cant === 1 ? 'Ya se usó a las ' + txt(e.ultimo_uso).slice(11, 16) : 'Ya entraron las ' + cant + ' personas (última ' + txt(e.ultimo_uso).slice(11, 16) + ').' };
+      else {
+        var pasan = Math.min(quiere, cant - usadas);
+        e.usadas = usadas + pasan; e.ultimo_uso = ahora(store);
+        store.update('Entradas', e);
+        r = { ok: true, motivo: cant === 1 ? 'Entrada válida' : (pasan === 1 ? 'Entra 1 · ' : 'Entran ' + pasan + ' · ') + e.usadas + ' de ' + cant + (cant - e.usadas ? ' (quedan ' + (cant - e.usadas) + ')' : ' (completa)'), pasan: pasan };
+      }
+      r.entrada = { id: e.id, nombre: e.nombre, tipo: e.tipo, cantidad: cant, usadas: num(e.usadas), quedan: Math.max(0, cant - num(e.usadas)), ultimo_uso: e.ultimo_uso, partido: p ? 'vs ' + txt(p.rival) : '' };
+    }
+    r.tipo = 'entrada';
+    store.insert('Accesos', {
+      id: nuevoId(store, 'Accesos'), fecha_hora: ahora(store), socio_id: e ? txt(e.socio_id) : '', nombre: e ? txt(e.nombre) + ' (entrada)' : 'Entrada ' + txt(id),
+      resultado: r.ok ? 'Permitido' : 'Rechazado', motivo: r.motivo, lugar: txt(lugar), entrada_id: e ? e.id : ''
     });
     return r;
   }
@@ -378,7 +564,8 @@ var MOTOR = (function () {
       sponsors: store.rows('Sponsors').slice().sort(orden),
       noticias: store.rows('Noticias').filter(function (n) { return txt(n.publicada) === 'SI'; })
         .sort(function (a, b) { return fechaISO(a.fecha) < fechaISO(b.fecha) ? 1 : -1; }).slice(0, 30),
-      socios: store.rows('Socios').filter(function (s) { return txt(s.estado || 'Activo') === 'Activo'; }).length
+      socios: store.rows('Socios').filter(function (s) { return txt(s.estado || 'Activo') === 'Activo'; }).length,
+      partidos: partidosEnVenta(store)
     };
   }
 
@@ -474,7 +661,7 @@ var MOTOR = (function () {
   }
 
   // ---------- Operaciones genéricas del panel ----------
-  var EDITABLES = ['Categorias', 'Actividades', 'Noticias', 'Sponsors', 'Usuarios', 'Cuotas'];
+  var EDITABLES = ['Categorias', 'Actividades', 'Noticias', 'Sponsors', 'Usuarios', 'Cuotas', 'Partidos'];
   function guardar(store, tabla, fila, usuario) {
     if (tabla === 'Socios') return guardarSocio(store, fila);
     if (EDITABLES.indexOf(tabla) < 0) throw err('No se puede editar ' + tabla + ' desde acá.');
@@ -488,7 +675,14 @@ var MOTOR = (function () {
       if (ya) store.update('Usuarios', f, 'email'); else store.insert('Usuarios', f);
       return f;
     }
-    if (!f.nombre && !f.titulo && tabla !== 'Cuotas') throw err('Falta el nombre.');
+    if (tabla === 'Partidos') {
+      if (!txt(f.rival)) throw err('Falta el rival.');
+      f.fecha = fechaISO(f.fecha);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(f.fecha)) throw err('Falta la fecha del partido.');
+      if (txt(f.hora)) { f.hora = horaDe(f.hora); if (!f.hora) throw err('La hora va así: 16:00'); }
+      f.precio_general = num(f.precio_general); f.precio_socio = num(f.precio_socio); f.cupo = num(f.cupo) || '';
+      f.estado = f.estado || 'Venta';
+    } else if (!f.nombre && !f.titulo && tabla !== 'Cuotas') throw err('Falta el nombre.');
     if (tabla === 'Noticias') { f.fecha = f.fecha || hoyISO(store); f.autor = f.autor || txt(usuario); f.publicada = f.publicada || 'SI'; }
     if (f.id && porId(store, tabla, f.id)) {
       var previo = porId(store, tabla, f.id);
@@ -527,6 +721,8 @@ var MOTOR = (function () {
       if (c) { c.estado = 'Anulada'; store.update('Cuotas', c); }
       return c;
     }
+    if (tabla === 'Partidos' && store.rows('Entradas').some(function (x) { return txt(x.partido_id) === txt(id) && txt(x.estado) !== 'Anulada'; }))
+      throw err('Ese partido ya tiene entradas vendidas: en vez de borrarlo, cerrá la venta.');
     if (EDITABLES.indexOf(tabla) < 0) throw err('No se puede borrar en ' + tabla + '.');
     store.remove(tabla, id, tabla === 'Usuarios' ? 'email' : 'id');
     return { id: id };
@@ -577,6 +773,8 @@ var MOTOR = (function () {
     guardarSocio: guardarSocio, eliminarSocio: eliminarSocio, ingresarSocio: ingresarSocio, paraRecuperar: paraRecuperar, mailCodigo: mailCodigo, ocultarEmail: ocultarEmail, vistaSocio: vistaSocio, nuevoCodigo: nuevoCodigo,
     generarCuotas: generarCuotas, registrarPago: registrarPago, informarPago: informarPago, resolverPago: resolverPago,
     solicitud: solicitud, aprobarSolicitud: aprobarSolicitud, validarAcceso: validarAcceso,
+    ventana: ventana, partidosEnVenta: partidosEnVenta, infoPartido: infoPartido, comprarEntrada: comprarEntrada, informarEntrada: informarEntrada,
+    resolverEntrada: resolverEntrada, anularEntrada: anularEntrada, vistaEntrada: vistaEntrada, entradaPorCodigo: entradaPorCodigo, entradasDelSocio: entradasDelSocio, cupoSocio: cupoSocio,
     resumen: resumen, publico: publico, guardar: guardar, borrar: borrar,
     borradorCronica: borradorCronica, promptCronica: promptCronica, promptResumenComision: promptResumenComision, resumenComisionSinIA: resumenComisionSinIA
   };
@@ -591,8 +789,10 @@ if (typeof module !== 'undefined') module.exports = MOTOR;
  *  1. Creá una planilla nueva en Drive llamada "Pitazo Clubs" > Extensiones > Apps Script.
  *  2. Pegá TODO Code.gs (motor + este archivo) y guardá.
  *  3. Completá GOOGLE_CLIENT_ID abajo (el mismo que va en js/config.js).
- *  4. Ejecutá la función crearPirovano() una vez y aceptá los permisos.
- *     Crea la planilla del club, la registra en la pestaña Clubes y carga lo básico.
+ *  4. Ejecutá prepararClubes() una vez y aceptá los permisos.
+ *     Club nuevo (sin tocar este código): en la pestaña Clubes completá una fila (slug, nombre,
+ *     colores, pitazo_club_id, admin_email...) con planilla_id vacío y usá el menú
+ *     Pitazo Clubs > Crear clubes nuevos (o ejecutá crearClub()). Su web queda en .../<slug>/
  *  5. Implementar > Nueva implementación > Aplicación web.
  *     Ejecutar como: Yo. Quién tiene acceso: Cualquier persona.
  *  6. Copiá la URL /exec en API_URL de js/config.js.
@@ -600,10 +800,11 @@ if (typeof module !== 'undefined') module.exports = MOTOR;
  *  (la misma clave de Gemini de Pitazo Final sirve) para las crónicas y el resumen con IA.
  *
  * Cada club tiene su propia planilla (pestañas Config, Usuarios, Categorias, Actividades,
- * Socios, Cuotas, Pagos, Noticias, Sponsors, Accesos, Solicitudes). La planilla central
- * solo tiene la pestaña Clubes: slug | nombre | planilla_id | activo.
+ * Socios, Cuotas, Pagos, Noticias, Sponsors, Accesos, Solicitudes, Partidos, Entradas). Las pestañas
+ * que falten se crean solas. La planilla central solo tiene la pestaña Clubes.
  *
- * GET  ?r=publico&c=pirovano                       datos públicos de la web del club
+ * GET  ?r=publico&club=pirovano                    datos públicos de la web del club
+ *      (NO usar ?c= ni ?sid=: Apps Script los reserva y corta el pedido)
  * GET  ?r=clubes                                  lista para la portada de Pitazo Clubs
  * GET  ?r=ping                                     {"ok":true,"servicio":"Pitazo Clubs"}
  * POST (texto JSON) {accion, club, ...}:
@@ -615,19 +816,24 @@ if (typeof module !== 'undefined') module.exports = MOTOR;
  *   panel_sesion {token(Google)}                    -> {usuario}
  *   panel_datos {token}                             todas las tablas
  *   panel_op {token, op, args}                      -> {res, datos}
+ *   panel_acceso {token, leido, lugar, cuantas}     escaneo rápido: devuelve solo el resultado
+ *   entrada_comprar {datos}  entrada_ver {id, codigo}  entrada_pago {id, codigo, comprobante}
+ *   socio_entrada {socio_token, partido_id, cantidad}   entrada con precio de socio
  */
 
 const GOOGLE_CLIENT_ID = '513742201235-79a1b7tnk46vt8db28e8t54rqbqhrk3p.apps.googleusercontent.com'; // proyecto de Google Cloud pitazoclubs
 const CARPETA_ARCHIVOS = 'Pitazo Clubs - archivos';
 const SOCIO_DIAS = 60;                // cuánto dura la sesión del socio en el celular
+const VERSION_API = '29oct-e';        // aparece en ?r=ping: sirve para saber qué código está publicado
 
 // Qué puede hacer cada rol del panel (columna rol de la pestaña Usuarios).
 const PERMISOS = {
   admin: '*',
   tesorero: ['guardar:Socios', 'borrar:Socios', 'guardar:Cuotas', 'borrar:Cuotas', 'generarCuotas', 'registrarPago', 'resolverPago', 'enviarCodigo',
-    'aprobarSolicitud', 'rechazarSolicitud', 'validarAcceso', 'nuevoCodigo', 'resumenComision'],
+    'aprobarSolicitud', 'rechazarSolicitud', 'validarAcceso', 'nuevoCodigo', 'resumenComision',
+    'guardar:Partidos', 'borrar:Partidos', 'resolverEntrada', 'anularEntrada', 'venderEntrada'],
   prensa: ['guardar:Noticias', 'borrar:Noticias', 'redactar', 'subirArchivo'],
-  puerta: ['validarAcceso']
+  puerta: ['validarAcceso', 'venderEntrada']
 };
 
 // ---------- planilla central y de cada club ----------
@@ -650,7 +856,7 @@ function store_(planillaId) {
   const cache = {};
   function hoja(t) {
     let sh = ss.getSheetByName(t);
-    if (!sh) { sh = ss.insertSheet(t); sh.appendRow(MOTOR.TABLAS[t]); sh.setFrozenRows(1); }
+    if (!sh) { sh = ss.insertSheet(t); sh.appendRow(MOTOR.TABLAS[t]); sh.setFrozenRows(1); formatoTexto_(sh, MOTOR.TABLAS[t]); }
     return sh;
   }
   function leer(t) {
@@ -696,8 +902,14 @@ function store_(planillaId) {
     ahora: () => Utilities.formatDate(new Date(), 'America/Argentina/Buenos_Aires', 'yyyy-MM-dd HH:mm')
   };
 }
+// DNI, PIN, códigos, teléfonos y horas como texto (que Sheets no los convierta en números o fechas).
+const COLUMNAS_TEXTO = ['dni', 'pin', 'telefono', 'codigo_carnet', 'codigo', 'periodo', 'valor', 'numero', 'hora'];
+function formatoTexto_(sh, cols) {
+  COLUMNAS_TEXTO.forEach(k => { const j = cols.indexOf(k); if (j >= 0) sh.getRange(2, j + 1, 999, 1).setNumberFormat('@'); });
+}
 function fechaTexto_(d, campo) {
-  const f = /hora|fecha_hora/.test(campo) ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd';
+  if (campo === 'hora') return Utilities.formatDate(d, 'America/Argentina/Buenos_Aires', 'HH:mm');
+  const f = /fecha_hora|ultimo_uso/.test(campo) ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd';
   return Utilities.formatDate(d, 'America/Argentina/Buenos_Aires', f);
 }
 function limpio_(o) { // saca _fila y el pin antes de mandar al navegador
@@ -715,12 +927,12 @@ function tablas_(st, conPin) {
 function doGet(e) {
   try {
     const p = e.parameter || {};
-    if (p.r === 'ping' || !p.r) return json_({ ok: true, servicio: 'Pitazo Clubs' });
+    if (p.r === 'ping' || !p.r) return json_({ ok: true, servicio: 'Pitazo Clubs', version: VERSION_API });
     if (p.r === 'clubes') {  // portada de Pitazo Clubs
       return json_({ ok: true, data: clubes_().filter(c => String(c.activo || 'SI') !== 'NO').map(c => ({ slug: c.slug, nombre: c.nombre, ciudad: c.ciudad || '', escudo: c.escudo || '', color1: c.color1 || '' })) });
     }
     if (p.r === 'publico') {
-      const club = clubPorSlug_(p.c);
+      const club = clubPorSlug_(p.club);
       const cache = CacheService.getScriptCache(), k = 'pub_' + club.slug + '_' + version_(club.slug);
       const hit = cache.get(k);
       if (hit) return ContentService.createTextOutput(hit).setMimeType(ContentService.MimeType.JSON);
@@ -767,6 +979,33 @@ function accion_(club, b) {
       MOTOR.informarPago(s, id, d);
       return limpio_(MOTOR.vistaSocio(s, id));
     });
+    // ----- entradas (web pública, sin login: se accede con el link id + código) -----
+    case 'entrada_comprar': return conLock_(() => {
+      const s = st(), e = MOTOR.comprarEntrada(s, b.datos || {}, null, false);
+      tocar_(club.slug);
+      return limpio_(MOTOR.vistaEntrada(s, e, true));
+    });
+    case 'entrada_ver': { const s = st(); return limpio_(MOTOR.vistaEntrada(s, MOTOR.entradaPorCodigo(s, b.id, b.codigo), true)); }
+    case 'entrada_pago': return conLock_(() => {
+      const s = st();
+      MOTOR.entradaPorCodigo(s, b.id, b.codigo);
+      let comp = b.comprobante;
+      if (comp && /^data:/.test(comp)) comp = guardarArchivo_(club, comp, 'entrada-' + b.id, s, false);
+      const e = MOTOR.informarEntrada(s, b.id, b.codigo, comp, b.medio);
+      return limpio_(MOTOR.vistaEntrada(s, e, true));
+    });
+    case 'socio_entrada': return conLock_(() => {
+      const s = st(), id = socioDeToken_(club.slug, b.socio_token);
+      const e = MOTOR.comprarEntrada(s, { partido_id: b.partido_id, cantidad: b.cantidad }, id, false);
+      tocar_(club.slug);
+      return { entrada: limpio_(MOTOR.vistaEntrada(s, e, true)), vista: limpio_(MOTOR.vistaSocio(s, id)) };
+    });
+    // Escaneo en la puerta: valida, registra y devuelve solo el resultado (sin recargar todas las tablas).
+    case 'panel_acceso': return conLock_(() => {
+      const s = st(), ses = sesion_(club, b.token, s);
+      permitir_(ses.usuario, 'validarAcceso', {});
+      return limpio_(MOTOR.validarAcceso(s, b.leido, b.lugar, b.cuantas));
+    });
     case 'panel_sesion': return { usuario: sesion_(club, b.token, st()).usuario };
     case 'panel_datos': {
       const s = st(), ses = sesion_(club, b.token, s);
@@ -806,7 +1045,10 @@ function op_(club, s, op, a, quien) {
       if (!sol) throw new Error('No se encontró la solicitud.');
       sol.estado = 'Rechazada'; s.update('Solicitudes', sol); return sol;
     }
-    case 'validarAcceso': return MOTOR.validarAcceso(s, a.leido, a.lugar);
+    case 'validarAcceso': return MOTOR.validarAcceso(s, a.leido, a.lugar, a.cuantas);
+    case 'venderEntrada': return MOTOR.comprarEntrada(s, a.datos || {}, null, true, quien);
+    case 'resolverEntrada': return MOTOR.resolverEntrada(s, a.id, !!a.aprobar, quien, a.motivo);
+    case 'anularEntrada': return MOTOR.anularEntrada(s, a.id);
     case 'nuevoCodigo': return MOTOR.nuevoCodigo(s, a.id, a.que);
     case 'enviarCodigo': {
       const soc = s.rows('Socios').filter(x => x.id === a.id)[0];
@@ -948,50 +1190,108 @@ function version_(slug) { return PropertiesService.getScriptProperties().getProp
 function tocar_(slug) { PropertiesService.getScriptProperties().setProperty('v_' + slug, String(Date.now())); }
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
-// ---------- alta de clubes ----------
-/**
- * Crea la planilla de un club nuevo, con todas las pestañas, y la registra en Clubes.
- * datos: { slug, nombre, nombre_corto, pitazo_club_id, pitazo_liga_id, escudo, color1, color2, admin_email }
- */
-function crearClub(datos) {
-  if (!datos || !datos.slug) throw new Error('Falta el slug (la palabra que va en ?c=...).');
+// ---------- alta de clubes (sin tocar el código) ----------
+// En la pestaña Clubes de esta planilla, completá una fila por club y dejá planilla_id vacío:
+//   slug | nombre | planilla_id | activo | ciudad | escudo | color1 | color2 | nombre_corto | lema | pitazo_club_id | pitazo_liga_id | admin_email
+// Después: menú Pitazo Clubs > Crear clubes nuevos (o ejecutá crearClub() desde el editor).
+// La web del club queda sola en .../Pitazoclubs/<slug>/
+const COLUMNAS_CLUBES = ['slug', 'nombre', 'planilla_id', 'activo', 'ciudad', 'escudo', 'color1', 'color2', 'nombre_corto', 'lema', 'pitazo_club_id', 'pitazo_liga_id', 'admin_email'];
+
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('Pitazo Clubs')
+    .addItem('Crear clubes nuevos', 'crearClub')
+    .addItem('Preparar la pestaña Clubes', 'prepararClubes')
+    .addItem('Diagnóstico', 'diagnostico')
+    .addToUi();
+}
+function hojaClubes_() {
   let cl = central_().getSheetByName('Clubes');
-  if (!cl) { cl = central_().insertSheet('Clubes'); cl.appendRow(['slug', 'nombre', 'planilla_id', 'activo', 'ciudad', 'escudo', 'color1']); cl.setFrozenRows(1); }
-  if (clubes_().some(c => String(c.slug).toLowerCase() === datos.slug.toLowerCase())) throw new Error('Ya existe un club con slug ' + datos.slug);
+  if (!cl) { cl = central_().insertSheet('Clubes'); cl.setFrozenRows(1); }
+  const h = cl.getLastColumn() ? cl.getRange(1, 1, 1, cl.getLastColumn()).getValues()[0].map(String) : [];
+  COLUMNAS_CLUBES.forEach(k => { if (h.indexOf(k) < 0) { h.push(k); cl.getRange(1, h.length).setValue(k).setFontWeight('bold'); } });
+  return { sh: cl, h: h };
+}
+/** Agrega a la pestaña Clubes las columnas que falten (no borra nada). */
+function prepararClubes() { hojaClubes_(); aviso_('Pestaña Clubes lista. Completá una fila por club, con planilla_id vacío, y usá "Crear clubes nuevos".'); }
+
+/** Crea la planilla de cada club de la pestaña Clubes que todavía no tiene planilla_id. */
+function crearClub(datos) {
+  if (datos && datos.slug) {   // uso desde código: crearClub({ slug, nombre, ... })
+    if (clubes_().some(c => String(c.slug).toLowerCase() === String(datos.slug).toLowerCase())) throw new Error('Ya existe un club con slug ' + datos.slug);
+    const id = crearPlanillaClub_(datos), { sh, h } = hojaClubes_();
+    sh.appendRow(h.map(k => k === 'planilla_id' ? id : k === 'activo' ? 'SI' : (datos[k] || '')));
+    return id;
+  }
+  const { sh, h } = hojaClubes_();
+  const filas = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, h.length).getValues() : [];
+  const col = k => h.indexOf(k);
+  const hechos = [], errores = [];
+  filas.forEach((r, i) => {
+    const d = {}; h.forEach((k, j) => d[k] = String(r[j] === undefined ? '' : r[j]).trim());
+    if (!d.slug || d.planilla_id) return;
+    try {
+      d.slug = d.slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
+      if (!d.nombre) throw new Error('falta el nombre');
+      if (filas.some((o, k) => k !== i && String(o[col('slug')]).trim().toLowerCase() === d.slug)) throw new Error('el slug está repetido');
+      const id = crearPlanillaClub_(d);
+      sh.getRange(i + 2, col('slug') + 1).setValue(d.slug);
+      sh.getRange(i + 2, col('planilla_id') + 1).setValue(id);
+      if (!d.activo) sh.getRange(i + 2, col('activo') + 1).setValue('SI');
+      hechos.push(d.nombre + ' → /' + d.slug + '/');
+    } catch (err) { errores.push((d.nombre || d.slug) + ': ' + (err.message || err)); }
+  });
+  const msj = (hechos.length ? 'Clubes creados:\n' + hechos.join('\n') : 'No había clubes nuevos (filas con slug y sin planilla_id).') + (errores.length ? '\n\nCon problemas:\n' + errores.join('\n') : '');
+  aviso_(msj);
+  return msj;
+}
+function aviso_(m) { console.log(m); try { SpreadsheetApp.getUi().alert(m); } catch (err) {} }
+
+/** Arma la planilla del club con todas las pestañas y lo básico. Devuelve su id. */
+function crearPlanillaClub_(datos) {
   const ss = SpreadsheetApp.create('Pitazo Clubs - ' + datos.nombre);
   Object.keys(MOTOR.TABLAS).forEach((t, i) => {
     const sh = i === 0 ? ss.getSheets()[0].setName(t) : ss.insertSheet(t);
     sh.getRange(1, 1, 1, MOTOR.TABLAS[t].length).setValues([MOTOR.TABLAS[t]]).setFontWeight('bold');
     sh.setFrozenRows(1);
-    // DNI, CBU, PIN y teléfonos como texto (que no se coman los ceros).
-    ['dni', 'pin', 'telefono', 'codigo_carnet', 'periodo', 'valor', 'numero'].forEach(k => {
-      const j = MOTOR.TABLAS[t].indexOf(k);
-      if (j >= 0) sh.getRange(2, j + 1, 999, 1).setNumberFormat('@');
-    });
+    formatoTexto_(sh, MOTOR.TABLAS[t]);
   });
-  // Mover a la carpeta de Pitazo Clubs.
   try { const f = DriveApp.getFileById(ss.getId()); carpeta_(DriveApp.getRootFolder(), CARPETA_ARCHIVOS).addFile(f); DriveApp.getRootFolder().removeFile(f); } catch (err) {}
   const s = store_(ss.getId());
   const cfg = {
     nombre: datos.nombre, nombre_corto: datos.nombre_corto || datos.nombre, lema: datos.lema || '', pitazo_club_id: datos.pitazo_club_id || '',
-    pitazo_liga_id: datos.pitazo_liga_id || '', escudo: datos.escudo || '', color1: datos.color1 || '#D7261E', color2: datos.color2 || '#FFFFFF',
-    ciudad: datos.ciudad || '', cuota_vence_dia: '10'
+    pitazo_liga_id: datos.pitazo_liga_id || 'L01', escudo: datos.escudo || '', color1: datos.color1 || '#D7261E', color2: datos.color2 || '#FFFFFF',
+    ciudad: datos.ciudad || '', cuota_vence_dia: '10', entradas_horas_antes: '24'
   };
   Object.keys(cfg).forEach(k => s.insert('Config', { clave: k, valor: cfg[k] }));
   [['Activo', 8000, 'Mayores de 18.'], ['Cadete', 5000, 'Menores de 18.'], ['Grupo familiar', 15000, 'Titular + familia que vive en la misma casa.']]
     .forEach((c, i) => MOTOR.guardar(s, 'Categorias', { nombre: c[0], monto: c[1], descripcion: c[2], orden: i + 1 }));
-  if (datos.admin_email) s.insert('Usuarios', { email: datos.admin_email.toLowerCase(), nombre: '', rol: 'admin', activo: 'SI' });
-  cl.appendRow([datos.slug.toLowerCase(), datos.nombre, ss.getId(), 'SI', datos.ciudad || '', datos.escudo || '', datos.color1 || '']);
-  return ss.getUrl();
+  String(datos.admin_email || '').split(/[,;\s]+/).filter(Boolean).forEach(m => s.insert('Usuarios', { email: m.toLowerCase(), nombre: '', rol: 'admin', activo: 'SI' }));
+  return ss.getId();
 }
 
-/** Ejecutá esta función una vez para dar de alta a Pirovano. */
-function crearPirovano() {
-  const url = crearClub({
-    slug: 'pirovano', nombre: 'Club Deportivo Pirovano', nombre_corto: 'Deportivo Pirovano', lema: 'Pirovano está',
-    pitazo_club_id: 'CL06', pitazo_liga_id: 'L01', ciudad: 'Pirovano, partido de Bolívar',
-    escudo: 'https://lh3.googleusercontent.com/d/1oMxLbfoEdBNMqrP8tEZHbgXsFIoHBwcP', color1: '#D7261E', color2: '#FFFFFF',
-    admin_email: 'creamixds@gmail.com'
+/** Ejecutala una vez desde el editor cuando Google pida permisos nuevos (Gmail, Drive, conexiones externas). */
+function autorizar() {
+  console.log('Mails disponibles hoy: ' + MailApp.getRemainingDailyQuota());
+  console.log('Drive: ' + DriveApp.getRootFolder().getName() + ' · Planilla: ' + SpreadsheetApp.getActiveSpreadsheet().getName());
+  UrlFetchApp.fetch('https://www.google.com', { muteHttpExceptions: true });
+  console.log('Permisos OK. Ahora: Implementar > Gestionar implementaciones > editar > Nueva versión.');
+}
+
+/** Hace los mismos pedidos que la web y muestra la respuesta en el registro. */
+function diagnostico() {
+  console.log('Versión del código guardado: ' + VERSION_API);
+  console.log('Planilla central: ' + central_().getName() + ' · pestañas: ' + central_().getSheets().map(x => x.getName()).join(', '));
+  const primero = (clubes_()[0] || {}).slug || 'pirovano';
+  [['ping', {}], ['clubes', {}], ['publico', { club: primero }]].forEach(([r, extra]) => {
+    try {
+      const out = doGet({ parameter: Object.assign({ r: r }, extra) }).getContent();
+      console.log('?r=' + r + ' → ' + out.slice(0, 400));
+    } catch (err) { console.log('?r=' + r + ' → ERROR: ' + (err.stack || err)); }
   });
-  console.log('Planilla de Pirovano: ' + url);
+  clubes_().forEach(c => {
+    try {
+      const ss = SpreadsheetApp.openById(c.planilla_id);
+      console.log(c.slug + ': ' + ss.getName() + ' · socios: ' + (ss.getSheetByName('Socios').getLastRow() - 1));
+    } catch (err) { console.log(c.slug + ' → ERROR: ' + (err.message || err)); }
+  });
 }
