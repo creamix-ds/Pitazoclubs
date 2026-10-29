@@ -24,6 +24,7 @@
  * POST (texto JSON) {accion, club, ...}:
  *   solicitud {datos}                               formulario "Asociate"
  *   socio_ingresar {dni, pin}  -> {token, vista}    carnet digital
+ *   socio_recuperar {dni, link}  -> {email oculto}  manda el código por mail (1 cada 10 min)
  *   socio_vista {socio_token}
  *   socio_informar {socio_token, datos:{cuotas, comprobante(dataURL)}}
  *   panel_sesion {token(Google)}                    -> {usuario}
@@ -31,14 +32,14 @@
  *   panel_op {token, op, args}                      -> {res, datos}
  */
 
-const GOOGLE_CLIENT_ID = '';          // ← pegá acá el ID de cliente OAuth (termina en .apps.googleusercontent.com)
+const GOOGLE_CLIENT_ID = '513742201235-79a1b7tnk46vt8db28e8t54rqbqhrk3p.apps.googleusercontent.com'; // proyecto de Google Cloud pitazoclubs
 const CARPETA_ARCHIVOS = 'Pitazo Clubs - archivos';
 const SOCIO_DIAS = 60;                // cuánto dura la sesión del socio en el celular
 
 // Qué puede hacer cada rol del panel (columna rol de la pestaña Usuarios).
 const PERMISOS = {
   admin: '*',
-  tesorero: ['guardar:Socios', 'borrar:Socios', 'guardar:Cuotas', 'borrar:Cuotas', 'generarCuotas', 'registrarPago', 'resolverPago',
+  tesorero: ['guardar:Socios', 'borrar:Socios', 'guardar:Cuotas', 'borrar:Cuotas', 'generarCuotas', 'registrarPago', 'resolverPago', 'enviarCodigo',
     'aprobarSolicitud', 'rechazarSolicitud', 'validarAcceso', 'nuevoCodigo', 'resumenComision'],
   prensa: ['guardar:Noticias', 'borrar:Noticias', 'redactar', 'subirArchivo'],
   puerta: ['validarAcceso']
@@ -165,6 +166,15 @@ function accion_(club, b) {
       const s = st(), socio = MOTOR.ingresarSocio(s, b.dni, b.pin);
       return { token: tokenSocio_(club.slug, socio.id), vista: limpio_(MOTOR.vistaSocio(s, socio.id)) };
     }
+    case 'socio_recuperar': {
+      // Máximo un mail cada 10 minutos por DNI, para que no se use para molestar a nadie.
+      const cache = CacheService.getScriptCache(), k = 'rec_' + club.slug + '_' + String(b.dni || '').replace(/\D/g, '');
+      if (cache.get(k)) throw new Error('Ya te mandamos el código hace un rato. Revisá tu correo (y la carpeta de spam).');
+      const s = st(), r = MOTOR.paraRecuperar(s, b.dni);
+      enviarCodigo_(club, s, r.socio, b.link);
+      cache.put(k, '1', 600);
+      return { email: r.oculto };
+    }
     case 'socio_vista': return limpio_(MOTOR.vistaSocio(st(), socioDeToken_(club.slug, b.socio_token)));
     case 'socio_informar': return conLock_(() => {
       const s = st(), id = socioDeToken_(club.slug, b.socio_token), d = b.datos || {};
@@ -212,6 +222,13 @@ function op_(club, s, op, a, quien) {
     }
     case 'validarAcceso': return MOTOR.validarAcceso(s, a.leido, a.lugar);
     case 'nuevoCodigo': return MOTOR.nuevoCodigo(s, a.id, a.que);
+    case 'enviarCodigo': {
+      const soc = s.rows('Socios').filter(x => x.id === a.id)[0];
+      if (!soc) throw new Error('No se encontró el socio.');
+      const r = MOTOR.paraRecuperar(s, soc.dni);
+      enviarCodigo_(club, s, r.socio, a.link);
+      return { email: r.email };
+    }
     case 'subirArchivo': return { url: guardarArchivo_(club, a.dataUrl, a.nombre || 'imagen', s, true) };
     case 'redactar': {
       const base = MOTOR.borradorCronica(a.pz, a.notas);
@@ -279,6 +296,15 @@ function socioDeToken_(slug, token) {
   const d = datos.split('|');
   if (d[0] !== slug || Number(d[2]) < Date.now()) throw new Error('Sesión vencida. Volvé a entrar con tu DNI y código.');
   return d[1];
+}
+
+// ---------- mail con el código del carnet ----------
+function enviarCodigo_(club, s, socio, link) {
+  const cfg = MOTOR.config(s, false);
+  link = /^https:\/\//.test(String(link || '')) ? String(link) : '';
+  const m = MOTOR.mailCodigo(cfg, socio, link || 'la web del club');
+  if (MailApp.getRemainingDailyQuota() < 1) throw new Error('Hoy no se pueden mandar más mails. Pedí tu código en el club.');
+  MailApp.sendEmail({ to: socio.email, subject: m.asunto, body: m.texto, htmlBody: m.html, name: cfg.nombre_corto || cfg.nombre || 'Pitazo Clubs', noReply: true });
 }
 
 // ---------- archivos (escudo, fotos de noticias, comprobantes) ----------

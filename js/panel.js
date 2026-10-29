@@ -220,6 +220,7 @@ window.PC = window.PC || {};
         <p class="chico">El socio entra en <b>${e(linkWeb('#/socio'))}</b> con su DNI y este código.</p>
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px">
           ${s.telefono ? `<a class="boton" target="_blank" rel="noopener" href="${e(u.wa(s.telefono, `Hola ${s.nombre}! Ya tenés tu carnet digital del ${cfg().nombre_corto || cfg().nombre}. Entrá a ${linkWeb('#/socio')} con tu DNI y el código ${s.pin}.`))}">Mandar por WhatsApp</a>` : ''}
+          ${s.email ? `<button class="boton boton--gris" id="cod-mail">Mandar por email</button>` : ''}
           <button class="boton boton--gris" data-cod="pin">Nuevo código</button><button class="boton boton--gris" data-cod="qr">Invalidar QR</button></div>
         <p class="chico" style="margin-top:10px">"Invalidar QR" sirve si alguien le sacó foto al carnet: el QR viejo deja de funcionar.</p></div>`;
     } else {
@@ -243,6 +244,12 @@ window.PC = window.PC || {};
       (tabs.length ? `<div class="pestanas">${tabs.map(([k, n]) => `<button data-t="${k}" aria-selected="${pestana === k}">${n}</button>`).join('')}</div>` : '') + cuerpo);
     d.querySelectorAll('[data-t]').forEach(b => b.onclick = () => fichaSocio(id, b.dataset.t));
     d.querySelectorAll('[data-ir]').forEach(b => b.onclick = () => fichaSocio(b.dataset.ir));
+    const cm = d.querySelector('#cod-mail');
+    if (cm) cm.onclick = async () => {
+      cm.disabled = true;
+      try { const r = await op('enviarCodigo', { id, link: linkWeb('#/socio') }); u.aviso(r.demo ? 'Demo: no se mandan mails. En la versión real le llega a ' + r.email : 'Código enviado a ' + r.email, 'ok'); }
+      catch (x) {} finally { cm.disabled = false; }
+    };
     d.querySelectorAll('[data-cod]').forEach(b => b.onclick = async () => { await op('nuevoCodigo', { id, que: b.dataset.cod }, b.dataset.cod === 'pin' ? 'Código nuevo generado' : 'QR anterior invalidado'); fichaSocio(id, 'carnet'); });
     const reg = d.querySelector('#registrar');
     if (reg) {

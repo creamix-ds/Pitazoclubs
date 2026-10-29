@@ -148,6 +148,12 @@ window.PC = window.PC || {};
       localStorage.setItem('pc_socio_' + SLUG, r.token);
       return r.vista;
     },
+    /** "¿Olvidaste tu código?": el club le manda el código al email del socio. */
+    socioRecuperar(dni) {
+      const link = location.origin + location.pathname + '#/socio';
+      if (DEMO) return local(() => { const r = M.paraRecuperar(store, dni); return { email: r.oculto, demo_pin: r.socio.pin }; });
+      return post('socio_recuperar', { dni, link });
+    },
     socioActivo: () => DEMO ? !!sessionStorage.getItem('pc_socio_demo') : !!localStorage.getItem('pc_socio_' + SLUG),
     socioVista() {
       if (DEMO) return local(() => M.vistaSocio(store, sessionStorage.getItem('pc_socio_demo')));
@@ -188,6 +194,7 @@ window.PC = window.PC || {};
         rechazarSolicitud: () => { const s = store.rows('Solicitudes').find(x => x.id === args.id); if (s) { s.estado = 'Rechazada'; } return s; },
         validarAcceso: () => M.validarAcceso(store, args.leido, args.lugar),
         nuevoCodigo: () => M.nuevoCodigo(store, args.id, args.que),
+        enviarCodigo: () => { const s = store.rows('Socios').find(x => x.id === args.id); return { email: M.paraRecuperar(store, s && s.dni).email, demo: true }; },
         // Sin IA en la demo: borrador armado solo con los datos reales del partido.
         redactar: () => Object.assign(M.borradorCronica(args.pz, args.notas), { ia: false }),
         resumenComision: () => ({ texto: M.resumenComisionSinIA(M.resumen(store, args.periodo)), ia: false }),

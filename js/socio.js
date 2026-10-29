@@ -42,11 +42,13 @@ window.PC = window.PC || {};
           <label class="campo"><span>Código</span><input name="pin" inputmode="numeric" maxlength="6" autocomplete="current-password" required></label>
           <div id="f-error">${msj ? `<div class="error">${e(msj)}</div>` : ''}</div>
           <button class="boton" type="submit">Entrar</button>
+          <button class="link" type="button" id="olvide" style="justify-self:center">¿Olvidaste tu código?</button>
         </form>
         <p class="chico" style="margin:14px 0 0">¿No tenés código? Pedilo en el club${c.whatsapp ? ` o por <a href="${e(u.wa(c.whatsapp, 'Hola! Necesito mi código para el carnet digital. Mi DNI es '))}" target="_blank" rel="noopener">WhatsApp</a>` : ''}. ¿Todavía no sos socio? <a href="#/asociate">Asociate</a>.</p>
         ${DB.demo ? '<p class="chico" style="margin:10px 0 0;background:#FAF9F7;border-radius:8px;padding:8px">Demo: DNI <b>30111222</b> · código <b>1234</b></p>' : ''}
       </div></section>`;
     const f = document.getElementById('f-ingreso');
+    document.getElementById('olvide').onclick = () => recuperar(f.dni.value);
     f.addEventListener('submit', async ev => {
       ev.preventDefault();
       const b = f.querySelector('button'); b.disabled = true;
@@ -55,6 +57,36 @@ window.PC = window.PC || {};
         PESTANA = 'carnet'; pintar();
       } catch (err) { document.getElementById('f-error').innerHTML = `<div class="error">${e(err.message)}</div>`; b.disabled = false; }
     });
+  }
+
+  // Pide el código por email (al que el socio tiene cargado en el club).
+  function recuperar(dni) {
+    const c = PC.ctx.cfg;
+    main().innerHTML = `<section class="seccion contenedor" style="max-width:460px">
+      <div class="tarjeta">
+        <h2 style="margin-bottom:6px">Recuperar mi código</h2>
+        <p class="chico">Escribí tu DNI. Te mandamos el código al email que tenés cargado en el club.</p>
+        <form class="form" id="f-rec" style="margin-top:12px">
+          <label class="campo"><span>DNI</span><input name="dni" inputmode="numeric" value="${e(dni || '')}" required></label>
+          <div id="f-error"></div>
+          <button class="boton" type="submit">Mandarme el código</button>
+          <button class="link" type="button" id="volver" style="justify-self:center">← Volver</button>
+        </form>
+        <p class="chico" style="margin:14px 0 0">¿No tenés email cargado o no te llega? Pedí tu código en el club${c.whatsapp ? ` o por <a href="${e(u.wa(c.whatsapp, 'Hola! Necesito mi código para el carnet digital. Mi DNI es '))}" target="_blank" rel="noopener">WhatsApp</a>` : ''}.</p>
+      </div></section>`;
+    const f = document.getElementById('f-rec');
+    document.getElementById('volver').onclick = () => ingreso();
+    f.onsubmit = async ev => {
+      ev.preventDefault();
+      const b = f.querySelector('button[type=submit]'); b.disabled = true; b.textContent = 'Enviando…';
+      try {
+        const r = await DB.socioRecuperar(f.dni.value);
+        f.outerHTML = `<div class="exito" style="margin-top:12px">Listo. Te mandamos el código a <b>${e(r.email)}</b>. Revisá también la carpeta de spam.</div>
+          ${r.demo_pin ? `<p class="chico" style="margin:10px 0 0;background:#FAF9F7;border-radius:8px;padding:8px">Demo: no se mandan mails de verdad. El código es <b>${e(r.demo_pin)}</b>.</p>` : ''}
+          <button class="boton boton--ancho" style="margin-top:12px" id="a-ingreso">Entrar con mi código</button>`;
+        document.getElementById('a-ingreso').onclick = () => ingreso();
+      } catch (x) { document.getElementById('f-error').innerHTML = `<div class="error">${e(x.message)}</div>`; b.disabled = false; b.textContent = 'Mandarme el código'; }
+    };
   }
 
   function pintar() {

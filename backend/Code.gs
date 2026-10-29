@@ -514,6 +514,37 @@ var MOTOR = (function () {
     store.remove(tabla, id, tabla === 'Usuarios' ? 'email' : 'id');
     return { id: id };
   }
+  // "¿Olvidaste tu código?": busca al socio por DNI y devuelve a qué email mandarlo.
+  function ocultarEmail(m) {
+    var p = txt(m).split('@');
+    if (p.length !== 2) return '';
+    var u = p[0], d = p[1].split('.');
+    return u.charAt(0) + '***' + (u.length > 3 ? u.slice(-1) : '') + '@' + d[0].charAt(0) + '***.' + d.slice(1).join('.');
+  }
+  function paraRecuperar(store, dni) {
+    dni = soloDigitos(dni);
+    if (dni.length < 7) throw err('Escribí tu DNI, solo números.');
+    var s = store.rows('Socios').filter(function (x) { return soloDigitos(x.dni) === dni && txt(x.estado) !== 'Baja'; })[0];
+    if (!s) throw err('No encontramos un socio con ese DNI. Si te asociaste hace poco, puede que el club todavía no haya aprobado tu solicitud.');
+    var mail = txt(s.email).toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) throw err('Tu ficha de socio no tiene un email cargado. Pedí tu código en el club.');
+    if (!txt(s.pin)) { s.pin = azar(4, '0123456789'); store.update('Socios', s); }
+    return { socio: s, email: mail, oculto: ocultarEmail(mail) };
+  }
+  function mailCodigo(cfg, s, link) {
+    var club = cfg.nombre_corto || cfg.nombre || 'el club';
+    return {
+      asunto: 'Tu código para el carnet digital de ' + club,
+      texto: 'Hola ' + txt(s.nombre) + ':\n\nTu código para entrar al carnet digital de ' + club + ' es: ' + txt(s.pin) +
+        '\n\nEntrá en ' + link + ' con tu DNI (' + txt(s.dni) + ') y este código.\n\nSi no lo pediste, ignorá este mensaje.',
+      html: '<div style="font-family:Arial,sans-serif;max-width:480px">' +
+        '<p>Hola ' + txt(s.nombre) + ':</p><p>Tu código para entrar al carnet digital de <b>' + club + '</b> es:</p>' +
+        '<p style="font-size:32px;font-weight:bold;letter-spacing:8px;margin:12px 0">' + txt(s.pin) + '</p>' +
+        '<p><a href="' + link + '" style="background:' + (cfg.color1 || '#D7261E') + ';color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;display:inline-block">Abrir mi carnet</a></p>' +
+        '<p style="color:#777;font-size:13px">Entrá con tu DNI (' + txt(s.dni) + ') y este código. Si no lo pediste, ignorá este mensaje.</p></div>'
+    };
+  }
+
   function nuevoCodigo(store, socioId, queCosa) {
     var s = porId(store, 'Socios', socioId);
     if (!s) throw err('No se encontró el socio.');
@@ -526,7 +557,7 @@ var MOTOR = (function () {
     TABLAS: TABLAS, txt: txt, num: num, lista: lista, fechaISO: fechaISO, plata: plata, nombrePeriodo: nombrePeriodo, nombreDe: nombreDe,
     config: config, guardarConfig: guardarConfig,
     estadoDe: estadoDe, estadoConTitular: estadoConTitular, cuotasDe: cuotasDe, montoMensual: montoMensual,
-    guardarSocio: guardarSocio, ingresarSocio: ingresarSocio, vistaSocio: vistaSocio, nuevoCodigo: nuevoCodigo,
+    guardarSocio: guardarSocio, ingresarSocio: ingresarSocio, paraRecuperar: paraRecuperar, mailCodigo: mailCodigo, ocultarEmail: ocultarEmail, vistaSocio: vistaSocio, nuevoCodigo: nuevoCodigo,
     generarCuotas: generarCuotas, registrarPago: registrarPago, informarPago: informarPago, resolverPago: resolverPago,
     solicitud: solicitud, aprobarSolicitud: aprobarSolicitud, validarAcceso: validarAcceso,
     resumen: resumen, publico: publico, guardar: guardar, borrar: borrar,
@@ -561,6 +592,7 @@ if (typeof module !== 'undefined') module.exports = MOTOR;
  * POST (texto JSON) {accion, club, ...}:
  *   solicitud {datos}                               formulario "Asociate"
  *   socio_ingresar {dni, pin}  -> {token, vista}    carnet digital
+ *   socio_recuperar {dni, link}  -> {email oculto}  manda el código por mail (1 cada 10 min)
  *   socio_vista {socio_token}
  *   socio_informar {socio_token, datos:{cuotas, comprobante(dataURL)}}
  *   panel_sesion {token(Google)}                    -> {usuario}
@@ -568,14 +600,14 @@ if (typeof module !== 'undefined') module.exports = MOTOR;
  *   panel_op {token, op, args}                      -> {res, datos}
  */
 
-const GOOGLE_CLIENT_ID = '';          // ← pegá acá el ID de cliente OAuth (termina en .apps.googleusercontent.com)
+const GOOGLE_CLIENT_ID = '513742201235-79a1b7tnk46vt8db28e8t54rqbqhrk3p.apps.googleusercontent.com'; // proyecto de Google Cloud pitazoclubs
 const CARPETA_ARCHIVOS = 'Pitazo Clubs - archivos';
 const SOCIO_DIAS = 60;                // cuánto dura la sesión del socio en el celular
 
 // Qué puede hacer cada rol del panel (columna rol de la pestaña Usuarios).
 const PERMISOS = {
   admin: '*',
-  tesorero: ['guardar:Socios', 'borrar:Socios', 'guardar:Cuotas', 'borrar:Cuotas', 'generarCuotas', 'registrarPago', 'resolverPago',
+  tesorero: ['guardar:Socios', 'borrar:Socios', 'guardar:Cuotas', 'borrar:Cuotas', 'generarCuotas', 'registrarPago', 'resolverPago', 'enviarCodigo',
     'aprobarSolicitud', 'rechazarSolicitud', 'validarAcceso', 'nuevoCodigo', 'resumenComision'],
   prensa: ['guardar:Noticias', 'borrar:Noticias', 'redactar', 'subirArchivo'],
   puerta: ['validarAcceso']
@@ -702,6 +734,15 @@ function accion_(club, b) {
       const s = st(), socio = MOTOR.ingresarSocio(s, b.dni, b.pin);
       return { token: tokenSocio_(club.slug, socio.id), vista: limpio_(MOTOR.vistaSocio(s, socio.id)) };
     }
+    case 'socio_recuperar': {
+      // Máximo un mail cada 10 minutos por DNI, para que no se use para molestar a nadie.
+      const cache = CacheService.getScriptCache(), k = 'rec_' + club.slug + '_' + String(b.dni || '').replace(/\D/g, '');
+      if (cache.get(k)) throw new Error('Ya te mandamos el código hace un rato. Revisá tu correo (y la carpeta de spam).');
+      const s = st(), r = MOTOR.paraRecuperar(s, b.dni);
+      enviarCodigo_(club, s, r.socio, b.link);
+      cache.put(k, '1', 600);
+      return { email: r.oculto };
+    }
     case 'socio_vista': return limpio_(MOTOR.vistaSocio(st(), socioDeToken_(club.slug, b.socio_token)));
     case 'socio_informar': return conLock_(() => {
       const s = st(), id = socioDeToken_(club.slug, b.socio_token), d = b.datos || {};
@@ -749,6 +790,13 @@ function op_(club, s, op, a, quien) {
     }
     case 'validarAcceso': return MOTOR.validarAcceso(s, a.leido, a.lugar);
     case 'nuevoCodigo': return MOTOR.nuevoCodigo(s, a.id, a.que);
+    case 'enviarCodigo': {
+      const soc = s.rows('Socios').filter(x => x.id === a.id)[0];
+      if (!soc) throw new Error('No se encontró el socio.');
+      const r = MOTOR.paraRecuperar(s, soc.dni);
+      enviarCodigo_(club, s, r.socio, a.link);
+      return { email: r.email };
+    }
     case 'subirArchivo': return { url: guardarArchivo_(club, a.dataUrl, a.nombre || 'imagen', s, true) };
     case 'redactar': {
       const base = MOTOR.borradorCronica(a.pz, a.notas);
@@ -816,6 +864,15 @@ function socioDeToken_(slug, token) {
   const d = datos.split('|');
   if (d[0] !== slug || Number(d[2]) < Date.now()) throw new Error('Sesión vencida. Volvé a entrar con tu DNI y código.');
   return d[1];
+}
+
+// ---------- mail con el código del carnet ----------
+function enviarCodigo_(club, s, socio, link) {
+  const cfg = MOTOR.config(s, false);
+  link = /^https:\/\//.test(String(link || '')) ? String(link) : '';
+  const m = MOTOR.mailCodigo(cfg, socio, link || 'la web del club');
+  if (MailApp.getRemainingDailyQuota() < 1) throw new Error('Hoy no se pueden mandar más mails. Pedí tu código en el club.');
+  MailApp.sendEmail({ to: socio.email, subject: m.asunto, body: m.texto, htmlBody: m.html, name: cfg.nombre_corto || cfg.nombre || 'Pitazo Clubs', noReply: true });
 }
 
 // ---------- archivos (escudo, fotos de noticias, comprobantes) ----------

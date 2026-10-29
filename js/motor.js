@@ -513,6 +513,37 @@ var MOTOR = (function () {
     store.remove(tabla, id, tabla === 'Usuarios' ? 'email' : 'id');
     return { id: id };
   }
+  // "¿Olvidaste tu código?": busca al socio por DNI y devuelve a qué email mandarlo.
+  function ocultarEmail(m) {
+    var p = txt(m).split('@');
+    if (p.length !== 2) return '';
+    var u = p[0], d = p[1].split('.');
+    return u.charAt(0) + '***' + (u.length > 3 ? u.slice(-1) : '') + '@' + d[0].charAt(0) + '***.' + d.slice(1).join('.');
+  }
+  function paraRecuperar(store, dni) {
+    dni = soloDigitos(dni);
+    if (dni.length < 7) throw err('Escribí tu DNI, solo números.');
+    var s = store.rows('Socios').filter(function (x) { return soloDigitos(x.dni) === dni && txt(x.estado) !== 'Baja'; })[0];
+    if (!s) throw err('No encontramos un socio con ese DNI. Si te asociaste hace poco, puede que el club todavía no haya aprobado tu solicitud.');
+    var mail = txt(s.email).toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) throw err('Tu ficha de socio no tiene un email cargado. Pedí tu código en el club.');
+    if (!txt(s.pin)) { s.pin = azar(4, '0123456789'); store.update('Socios', s); }
+    return { socio: s, email: mail, oculto: ocultarEmail(mail) };
+  }
+  function mailCodigo(cfg, s, link) {
+    var club = cfg.nombre_corto || cfg.nombre || 'el club';
+    return {
+      asunto: 'Tu código para el carnet digital de ' + club,
+      texto: 'Hola ' + txt(s.nombre) + ':\n\nTu código para entrar al carnet digital de ' + club + ' es: ' + txt(s.pin) +
+        '\n\nEntrá en ' + link + ' con tu DNI (' + txt(s.dni) + ') y este código.\n\nSi no lo pediste, ignorá este mensaje.',
+      html: '<div style="font-family:Arial,sans-serif;max-width:480px">' +
+        '<p>Hola ' + txt(s.nombre) + ':</p><p>Tu código para entrar al carnet digital de <b>' + club + '</b> es:</p>' +
+        '<p style="font-size:32px;font-weight:bold;letter-spacing:8px;margin:12px 0">' + txt(s.pin) + '</p>' +
+        '<p><a href="' + link + '" style="background:' + (cfg.color1 || '#D7261E') + ';color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;display:inline-block">Abrir mi carnet</a></p>' +
+        '<p style="color:#777;font-size:13px">Entrá con tu DNI (' + txt(s.dni) + ') y este código. Si no lo pediste, ignorá este mensaje.</p></div>'
+    };
+  }
+
   function nuevoCodigo(store, socioId, queCosa) {
     var s = porId(store, 'Socios', socioId);
     if (!s) throw err('No se encontró el socio.');
@@ -525,7 +556,7 @@ var MOTOR = (function () {
     TABLAS: TABLAS, txt: txt, num: num, lista: lista, fechaISO: fechaISO, plata: plata, nombrePeriodo: nombrePeriodo, nombreDe: nombreDe,
     config: config, guardarConfig: guardarConfig,
     estadoDe: estadoDe, estadoConTitular: estadoConTitular, cuotasDe: cuotasDe, montoMensual: montoMensual,
-    guardarSocio: guardarSocio, ingresarSocio: ingresarSocio, vistaSocio: vistaSocio, nuevoCodigo: nuevoCodigo,
+    guardarSocio: guardarSocio, ingresarSocio: ingresarSocio, paraRecuperar: paraRecuperar, mailCodigo: mailCodigo, ocultarEmail: ocultarEmail, vistaSocio: vistaSocio, nuevoCodigo: nuevoCodigo,
     generarCuotas: generarCuotas, registrarPago: registrarPago, informarPago: informarPago, resolverPago: resolverPago,
     solicitud: solicitud, aprobarSolicitud: aprobarSolicitud, validarAcceso: validarAcceso,
     resumen: resumen, publico: publico, guardar: guardar, borrar: borrar,
