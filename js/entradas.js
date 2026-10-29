@@ -46,7 +46,7 @@ window.PC = window.PC || {};
     const cb = v.cobro, hay = cb.alias || cb.cbu, dato = (k, val) => `<div class="dato-cobro"><div><small>${e(k)}</small><b>${e(val)}</b></div><button class="boton boton--suave boton--chico" data-copiar="${e(val)}">Copiar</button></div>`;
     return `<div class="tarjeta" style="margin-top:14px"><h3 style="margin-bottom:4px">Pagá ${u.plata(v.entrada.total)}</h3>
       <p class="chico" style="margin:0 0 10px">La plata va directo a la cuenta del club. Después subí el comprobante.</p>
-      ${cb.mp_link ? `<a class="boton boton--ancho" href="${e(cb.mp_link)}" target="_blank" rel="noopener" style="margin-bottom:10px;background:#009EE3">Pagar con Mercado Pago</a>` : ''}
+      ${cb.mp_link ? `<a class="boton boton--ancho" href="${e(window.MOTOR.url(cb.mp_link))}" target="_blank" rel="noopener" style="margin-bottom:10px;background:#009EE3">Pagar con Mercado Pago</a>` : ''}
       ${hay ? (cb.alias ? dato('Alias', cb.alias) : '') + (cb.cbu ? dato('CBU / CVU', cb.cbu) : '') + `<p class="chico" style="margin:4px 0 0">${e([cb.titular, cb.banco, cb.cuit ? 'CUIT ' + cb.cuit : ''].filter(Boolean).join(' · '))}</p>` : ''}
       ${!cb.mp_link && !hay ? '<p class="chico">El club todavía no cargó sus datos para transferencias: pagá en la secretaría o en la boletería.</p>' : ''}
       <label class="subir" style="margin-top:12px"><input type="file" data-comp accept="image/*,application/pdf" hidden><span data-comp-vista>📎 Tocá para elegir la foto o el PDF del comprobante</span></label>

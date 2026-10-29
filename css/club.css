@@ -314,7 +314,10 @@ main:focus { outline: none; }
 .pie__grilla { display: grid; grid-template-columns: 1.4fr 1fr 1.2fr; gap: 20px; }
 .pie__links { display: flex; flex-direction: column; gap: 6px; }
 .pie__pitazo small { display: block; color: #888; margin-top: 4px; }
-.pie__firma { border-top: 1px solid #333; margin-top: 22px; padding-top: 14px; color: #888; font-size: .82rem; }
+.pie__firma { border-top: 1px solid #333; margin-top: 22px; padding-top: 14px; color: #888; font-size: .82rem; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pie__cm { display: inline-flex; align-items: center; gap: 6px; color: #bbb; text-decoration: none; }
+.pie__cm:hover { color: #fff; }
+.pie__cm img { border-radius: 50%; display: block; }
 @media (max-width: 700px) { .pie__grilla { grid-template-columns: 1fr; } }
 
 /* ======================= PANEL ======================= */

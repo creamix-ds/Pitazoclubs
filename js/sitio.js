@@ -3,6 +3,7 @@ window.PC = window.PC || {};
 (function () {
   'use strict';
   const { u, PZ, DB } = PC;
+  const M = window.MOTOR;
   const e = u.esc;
   const main = () => document.getElementById('contenido');
 
@@ -121,7 +122,7 @@ window.PC = window.PC || {};
       </section>` : ''}
       ${(pub.sponsors || []).length ? `<section class="seccion contenedor" style="padding-top:0">
         <div class="seccion__titulo"><h2>Nos acompañan</h2></div>
-        <div class="sponsors">${pub.sponsors.map(s => `<a class="sponsor" ${s.link ? `href="${e(s.link)}" target="_blank" rel="noopener"` : ''}>${s.logo ? `<img src="${e(s.logo)}" alt="${e(s.nombre)}">` : e(s.nombre)}</a>`).join('')}</div>
+        <div class="sponsors">${pub.sponsors.map(s => `<a class="sponsor" ${s.link ? `href="${e(M.url(s.link))}" target="_blank" rel="noopener"` : ''}>${s.logo ? `<img src="${e(M.url(s.logo, true))}" alt="${e(s.nombre)}">` : e(s.nombre)}</a>`).join('')}</div>
       </section>` : ''}`;
 
     const d = await conPitazo();
@@ -261,7 +262,7 @@ window.PC = window.PC || {};
       c.telefono && ['Teléfono', `<a href="tel:${e(c.telefono)}">${e(c.telefono)}</a>`],
       c.email && ['Email', `<a href="mailto:${e(c.email)}">${e(c.email)}</a>`],
       c.instagram && ['Instagram', `<a href="https://instagram.com/${e(c.instagram.replace('@', ''))}" target="_blank" rel="noopener">${e(c.instagram)}</a>`],
-      c.facebook && ['Facebook', `<a href="${e(c.facebook)}" target="_blank" rel="noopener">Página del club</a>`]
+      c.facebook && ['Facebook', `<a href="${e(M.url(c.facebook))}" target="_blank" rel="noopener">Página del club</a>`]
     ].filter(Boolean);
     main().innerHTML = `<section class="seccion contenedor">
       <div class="seccion__titulo"><h2>El club</h2></div>

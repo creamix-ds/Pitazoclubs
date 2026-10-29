@@ -174,7 +174,7 @@ window.PC = window.PC || {};
           <div class="paso"><div>
             <b>Pagale directo al club</b>
             <p class="chico" style="margin:2px 0 10px">La plata va a la cuenta del club. Pitazo Clubs no cobra comisión.</p>
-            ${cb.mp_link ? `<a class="boton boton--ancho" href="${e(cb.mp_link)}" target="_blank" rel="noopener" style="margin-bottom:10px;background:#009EE3">Pagar con Mercado Pago</a>` : ''}
+            ${cb.mp_link ? `<a class="boton boton--ancho" href="${e(window.MOTOR.url(cb.mp_link))}" target="_blank" rel="noopener" style="margin-bottom:10px;background:#009EE3">Pagar con Mercado Pago</a>` : ''}
             ${hayCuenta ? `${cb.alias ? datoCobro('Alias', cb.alias) : ''}${cb.cbu ? datoCobro('CBU / CVU', cb.cbu) : ''}
               <p class="chico" style="margin:4px 0 0">${e([cb.titular, cb.banco, cb.cuit ? 'CUIT ' + cb.cuit : ''].filter(Boolean).join(' · '))}</p>` : ''}
             ${!cb.mp_link && !hayCuenta ? '<p class="chico">El club todavía no cargó sus datos para transferencias: pagá en la secretaría.</p>' : ''}

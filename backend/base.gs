@@ -42,7 +42,7 @@
 const GOOGLE_CLIENT_ID = '513742201235-79a1b7tnk46vt8db28e8t54rqbqhrk3p.apps.googleusercontent.com'; // proyecto de Google Cloud pitazoclubs
 const CARPETA_ARCHIVOS = 'Pitazo Clubs - archivos';
 const SOCIO_DIAS = 60;                // cuánto dura la sesión del socio en el celular
-const VERSION_API = '29oct-g';        // aparece en ?r=ping: sirve para saber qué código está publicado
+const VERSION_API = '29oct-h';        // aparece en ?r=ping: sirve para saber qué código está publicado
 
 // Qué puede hacer cada rol del panel (columna rol de la pestaña Usuarios).
 const PERMISOS = {

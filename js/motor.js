@@ -74,6 +74,19 @@ var MOTOR = (function () {
   function nombreDe(s) { return s ? (txt(s.nombre) + ' ' + txt(s.apellido)).trim() : ''; }
   var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
   function nombrePeriodo(p) { var m = txt(p).match(/^(\d{4})-(\d{2})$/); return m ? MESES[parseInt(m[2], 10) - 1] + ' ' + m[1] : txt(p); }
+  // Links que carga el club: "creamixds.com" -> "https://creamixds.com", y los de Google Drive
+  // (drive.google.com/file/d/ID/...) -> https://lh3.googleusercontent.com/d/ID para que se vean como imagen.
+  function url(v, esImagen) {
+    var s = txt(v);
+    if (!s || /^(data:|mailto:|tel:|#)/i.test(s)) return s;
+    var d = s.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:export=\w+&)?id=)([\w-]{20,})/) || s.match(/lh3\.googleusercontent\.com\/d\/([\w-]{20,})/);
+    if (d && esImagen) return 'https://lh3.googleusercontent.com/d/' + d[1];
+    if (/^\/\//.test(s)) return 'https:' + s;
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(s) && /^[\w-]+(\.[\w-]+)+([\/?#:].*)?$/.test(s)) return 'https://' + s.replace(/^[^\/?#]+/, function (h) { return h.toLowerCase(); });
+    return s;
+  }
+  var CAMPOS_LINK = { link: false, logo: true, imagen: true, foto: true };
+  var CONFIG_LINK = { escudo: true, facebook: false, mp_link: false };
   function plata(n) { return '$' + Math.round(num(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'); }
 
   // ---------- Config ----------
@@ -92,7 +105,7 @@ var MOTOR = (function () {
     Object.keys(cambios || {}).forEach(function (k) {
       var fila = null;
       filas.forEach(function (r) { if (txt(r.clave) === k) fila = r; });
-      var v = txt(cambios[k]);
+      var v = k in CONFIG_LINK ? url(cambios[k], CONFIG_LINK[k]) : txt(cambios[k]);
       if (fila) { if (txt(fila.valor) !== v) store.update('Config', { clave: k, valor: v }, 'clave'); }
       else store.insert('Config', { clave: k, valor: v });
     });
@@ -666,7 +679,7 @@ var MOTOR = (function () {
     if (tabla === 'Socios') return guardarSocio(store, fila);
     if (EDITABLES.indexOf(tabla) < 0) throw err('No se puede editar ' + tabla + ' desde acá.');
     var f = {};
-    TABLAS[tabla].forEach(function (k) { if (fila[k] !== undefined) f[k] = typeof fila[k] === 'number' ? fila[k] : txt(fila[k]); });
+    TABLAS[tabla].forEach(function (k) { if (fila[k] !== undefined) f[k] = typeof fila[k] === 'number' ? fila[k] : k in CAMPOS_LINK ? url(fila[k], CAMPOS_LINK[k]) : txt(fila[k]); });
     if (tabla === 'Usuarios') {
       f.email = txt(f.email).toLowerCase();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email)) throw err('Revisá el email.');
@@ -777,7 +790,7 @@ var MOTOR = (function () {
   }
 
   return {
-    TABLAS: TABLAS, txt: txt, num: num, lista: lista, fechaISO: fechaISO, plata: plata, nombrePeriodo: nombrePeriodo, nombreDe: nombreDe,
+    TABLAS: TABLAS, txt: txt, num: num, url: url, lista: lista, fechaISO: fechaISO, plata: plata, nombrePeriodo: nombrePeriodo, nombreDe: nombreDe,
     config: config, guardarConfig: guardarConfig,
     estadoDe: estadoDe, estadoConTitular: estadoConTitular, cuotasDe: cuotasDe, montoMensual: montoMensual,
     guardarSocio: guardarSocio, eliminarSocio: eliminarSocio, eliminarPartido: eliminarPartido, ingresarSocio: ingresarSocio, paraRecuperar: paraRecuperar, mailCodigo: mailCodigo, ocultarEmail: ocultarEmail, vistaSocio: vistaSocio, nuevoCodigo: nuevoCodigo,
