@@ -110,7 +110,7 @@ window.PC = window.PC || {};
     return j.data;
   }
   async function get(r) {
-    const url = new URL(CFG.API_URL); url.searchParams.set('r', r); url.searchParams.set('c', SLUG);
+    const url = new URL(CFG.API_URL); url.searchParams.set('r', r); url.searchParams.set('club', SLUG); // ojo: 'c' y 'sid' están reservados por Apps Script
     const j = await (await fetch(url.toString())).json();
     if (!j.ok) throw new Error(j.error || 'Error de la API');
     return j.data;
