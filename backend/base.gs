@@ -206,6 +206,7 @@ function op_(club, s, op, a, quien) {
   switch (op) {
     case 'guardar': return MOTOR.guardar(s, a.tabla, a.fila || {}, quien);
     case 'borrar': return MOTOR.borrar(s, a.tabla, a.id);
+    case 'eliminarSocio': return MOTOR.eliminarSocio(s, a.id);
     case 'guardarConfig': {
       const c = Object.assign({}, a.cambios || {});
       ['mp_access_token', 'gemini', 'secreto'].forEach(k => delete c[k]);

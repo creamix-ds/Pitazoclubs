@@ -497,6 +497,23 @@ var MOTOR = (function () {
     } else { f.id = nuevoId(store, tabla); store.insert(tabla, f); }
     return f;
   }
+  // Eliminar del todo (solo admin): borra al socio, sus cuotas, pagos, accesos y su solicitud.
+  // Los integrantes de su grupo familiar quedan como socios sueltos (pagan su propia cuota).
+  function eliminarSocio(store, id) {
+    var s = porId(store, 'Socios', id);
+    if (!s) throw err('No se encontró el socio.');
+    var cuenta = function (t, campo) { return store.rows(t).filter(function (x) { return txt(x[campo]) === txt(id); }).map(function (x) { return x.id; }); };
+    var cuotas = cuenta('Cuotas', 'socio_id'), pagos = cuenta('Pagos', 'socio_id'), accesos = cuenta('Accesos', 'socio_id');
+    // De abajo hacia arriba, así no se corren las filas al borrar.
+    cuotas.reverse().forEach(function (x) { store.remove('Cuotas', x); });
+    pagos.reverse().forEach(function (x) { store.remove('Pagos', x); });
+    accesos.reverse().forEach(function (x) { store.remove('Accesos', x); });
+    store.rows('Socios').filter(function (x) { return txt(x.titular_id) === txt(id); }).forEach(function (x) { x.titular_id = ''; store.update('Socios', x); });
+    store.rows('Solicitudes').filter(function (x) { return txt(x.socio_id) === txt(id); }).forEach(function (x) { x.socio_id = ''; x.estado = 'Rechazada'; store.update('Solicitudes', x); });
+    store.remove('Socios', id);
+    return { id: id, nombre: nombreDe(s), cuotas: cuotas.length, pagos: pagos.length };
+  }
+
   function borrar(store, tabla, id) {
     if (tabla === 'Socios') {
       var s = porId(store, 'Socios', id);
@@ -557,7 +574,7 @@ var MOTOR = (function () {
     TABLAS: TABLAS, txt: txt, num: num, lista: lista, fechaISO: fechaISO, plata: plata, nombrePeriodo: nombrePeriodo, nombreDe: nombreDe,
     config: config, guardarConfig: guardarConfig,
     estadoDe: estadoDe, estadoConTitular: estadoConTitular, cuotasDe: cuotasDe, montoMensual: montoMensual,
-    guardarSocio: guardarSocio, ingresarSocio: ingresarSocio, paraRecuperar: paraRecuperar, mailCodigo: mailCodigo, ocultarEmail: ocultarEmail, vistaSocio: vistaSocio, nuevoCodigo: nuevoCodigo,
+    guardarSocio: guardarSocio, eliminarSocio: eliminarSocio, ingresarSocio: ingresarSocio, paraRecuperar: paraRecuperar, mailCodigo: mailCodigo, ocultarEmail: ocultarEmail, vistaSocio: vistaSocio, nuevoCodigo: nuevoCodigo,
     generarCuotas: generarCuotas, registrarPago: registrarPago, informarPago: informarPago, resolverPago: resolverPago,
     solicitud: solicitud, aprobarSolicitud: aprobarSolicitud, validarAcceso: validarAcceso,
     resumen: resumen, publico: publico, guardar: guardar, borrar: borrar,
@@ -774,6 +791,7 @@ function op_(club, s, op, a, quien) {
   switch (op) {
     case 'guardar': return MOTOR.guardar(s, a.tabla, a.fila || {}, quien);
     case 'borrar': return MOTOR.borrar(s, a.tabla, a.id);
+    case 'eliminarSocio': return MOTOR.eliminarSocio(s, a.id);
     case 'guardarConfig': {
       const c = Object.assign({}, a.cambios || {});
       ['mp_access_token', 'gemini', 'secreto'].forEach(k => delete c[k]);

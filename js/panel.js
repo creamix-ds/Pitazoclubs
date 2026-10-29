@@ -282,9 +282,28 @@ window.PC = window.PC || {};
       <label class="campo"><span>Observaciones</span><textarea name="observaciones" style="min-height:70px">${e(s.observaciones)}</textarea></label>
       <div id="f-error"></div>
       <button class="boton" type="submit">${s.id ? 'Guardar cambios' : 'Dar de alta'}</button>
+      ${s.id ? `<div style="border-top:1px solid var(--linea);margin-top:6px;padding-top:14px;display:grid;gap:8px">
+        ${s.estado !== 'Baja' ? `<button class="boton boton--gris" type="button" id="dar-baja">Dar de baja</button>
+        <small class="chico">Deja de figurar como socio activo, pero se guarda su historial de cuotas y pagos.</small>` : ''}
+        <button class="boton boton--gris" type="button" id="eliminar" style="color:var(--mal)">Eliminar del todo</button>
+        <small class="chico">Borra al socio con sus cuotas y pagos. No se puede deshacer. Solo administradores.</small>
+      </div>` : ''}
     </form>`;
   }
   function conectarFormSocio(f, s) {
+    const baja = f.querySelector('#dar-baja'), elim = f.querySelector('#eliminar');
+    if (baja) baja.onclick = async () => {
+      if (!confirm('¿Dar de baja a ' + nombre(s) + '? Se guarda su historial.')) return;
+      await op('borrar', { tabla: 'Socios', id: s.id }, nombre(s) + ' quedó dado de baja');
+      cerrar(); refrescar();
+    };
+    if (elim) elim.onclick = async () => {
+      const escrito = prompt('Esto borra a ' + nombre(s) + ' con todas sus cuotas y pagos, y no se puede deshacer.\n\nPara confirmar, escribí ELIMINAR:');
+      if (escrito === null) return;
+      if (escrito.trim().toUpperCase() !== 'ELIMINAR') return u.aviso('No se eliminó: tenías que escribir ELIMINAR.', 'mal');
+      const r = await op('eliminarSocio', { id: s.id }, x => `${x.nombre} eliminado (${x.cuotas} cuotas y ${x.pagos} pagos borrados)`);
+      cerrar(); refrescar();
+    };
     f.onsubmit = async ev => {
       ev.preventDefault();
       const fd = new FormData(f), fila = Object.fromEntries(fd.entries());

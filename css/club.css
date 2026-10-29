@@ -381,3 +381,6 @@ body.en-panel .cabeza, body.en-panel .pie { display: none; }
 body.en-portada .hero::before { inset: -40% 6% -40% auto; width: 90px; }
 body.en-portada .hero::after { background: linear-gradient(90deg, var(--c1) 0%, var(--c1) 72%, transparent 92%); }
 @media (max-width: 860px) { body.en-portada .hero::before { inset: -40% -50px -40% auto; } }
+
+/* Casillas y opciones dentro de un campo: tamaño normal (no como los cuadros de texto) */
+.campo input[type=checkbox], .campo input[type=radio] { width: 18px; height: 18px; min-height: 0; padding: 0; border: 0; box-shadow: none; flex: none; }

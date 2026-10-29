@@ -7,7 +7,7 @@
 // PITAZO_API: la API pública de Pitazo Final. De ahí se leen fixture, resultados,
 //   tabla, goleadores y noticias de la liga. Pitazo Clubs nunca escribe en Pitazo Final.
 window.CONFIG = {
-  API_URL: '',
+  API_URL: 'https://script.google.com/macros/s/AKfycbwqW11ajvgj-19jYO1dWnygTFnvMJd5ZcUYBVF4y7UrDwVYihnrzYEVEmqdLtjqUJWnpQ/exec',
 
   PITAZO_API: 'https://script.google.com/macros/s/AKfycbwnQBffCUCtToLGMtJupEoCZcxLfyj_gW059hGNc5oJ6ZcPi8-__mtDr9NZyNvuj8RN/exec',
   PITAZO_WEB: 'https://creamix-ds.github.io/pitazo-final/',

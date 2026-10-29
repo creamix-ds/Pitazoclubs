@@ -186,6 +186,7 @@ window.PC = window.PC || {};
       const ops = {
         guardar: () => M.guardar(store, args.tabla, args.fila, quien),
         borrar: () => M.borrar(store, args.tabla, args.id),
+        eliminarSocio: () => M.eliminarSocio(store, args.id),
         guardarConfig: () => M.guardarConfig(store, args.cambios),
         generarCuotas: () => M.generarCuotas(store, args.periodo),
         registrarPago: () => M.registrarPago(store, args.pago, quien),
