@@ -708,6 +708,16 @@ var MOTOR = (function () {
     return { id: id, nombre: nombreDe(s), cuotas: cuotas.length, pagos: pagos.length };
   }
 
+  // Eliminar del todo un partido con sus entradas (solo admin). Los ingresos quedan en Accesos como historial.
+  function eliminarPartido(store, id) {
+    var p = porId(store, 'Partidos', id);
+    if (!p) throw err('No se encontró el partido.');
+    var ents = store.rows('Entradas').filter(function (x) { return txt(x.partido_id) === txt(id); }).map(function (x) { return x.id; });
+    ents.reverse().forEach(function (x) { store.remove('Entradas', x); });
+    store.remove('Partidos', id);
+    return { id: id, rival: txt(p.rival), entradas: ents.length };
+  }
+
   function borrar(store, tabla, id) {
     if (tabla === 'Socios') {
       var s = porId(store, 'Socios', id);
@@ -770,7 +780,7 @@ var MOTOR = (function () {
     TABLAS: TABLAS, txt: txt, num: num, lista: lista, fechaISO: fechaISO, plata: plata, nombrePeriodo: nombrePeriodo, nombreDe: nombreDe,
     config: config, guardarConfig: guardarConfig,
     estadoDe: estadoDe, estadoConTitular: estadoConTitular, cuotasDe: cuotasDe, montoMensual: montoMensual,
-    guardarSocio: guardarSocio, eliminarSocio: eliminarSocio, ingresarSocio: ingresarSocio, paraRecuperar: paraRecuperar, mailCodigo: mailCodigo, ocultarEmail: ocultarEmail, vistaSocio: vistaSocio, nuevoCodigo: nuevoCodigo,
+    guardarSocio: guardarSocio, eliminarSocio: eliminarSocio, eliminarPartido: eliminarPartido, ingresarSocio: ingresarSocio, paraRecuperar: paraRecuperar, mailCodigo: mailCodigo, ocultarEmail: ocultarEmail, vistaSocio: vistaSocio, nuevoCodigo: nuevoCodigo,
     generarCuotas: generarCuotas, registrarPago: registrarPago, informarPago: informarPago, resolverPago: resolverPago,
     solicitud: solicitud, aprobarSolicitud: aprobarSolicitud, validarAcceso: validarAcceso,
     ventana: ventana, partidosEnVenta: partidosEnVenta, infoPartido: infoPartido, comprarEntrada: comprarEntrada, informarEntrada: informarEntrada,

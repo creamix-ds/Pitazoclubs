@@ -23,6 +23,7 @@
  * GET  ?r=publico&club=pirovano                    datos públicos de la web del club
  *      (NO usar ?c= ni ?sid=: Apps Script los reserva y corta el pedido)
  * GET  ?r=clubes                                  lista para la portada de Pitazo Clubs
+ * GET  ?r=cambios&club=pirovano                   marca de la última modificación (la web la consulta cada 15 s)
  * GET  ?r=ping                                     {"ok":true,"servicio":"Pitazo Clubs"}
  * POST (texto JSON) {accion, club, ...}:
  *   solicitud {datos}                               formulario "Asociate"
@@ -41,7 +42,7 @@
 const GOOGLE_CLIENT_ID = '513742201235-79a1b7tnk46vt8db28e8t54rqbqhrk3p.apps.googleusercontent.com'; // proyecto de Google Cloud pitazoclubs
 const CARPETA_ARCHIVOS = 'Pitazo Clubs - archivos';
 const SOCIO_DIAS = 60;                // cuánto dura la sesión del socio en el celular
-const VERSION_API = '29oct-e';        // aparece en ?r=ping: sirve para saber qué código está publicado
+const VERSION_API = '29oct-g';        // aparece en ?r=ping: sirve para saber qué código está publicado
 
 // Qué puede hacer cada rol del panel (columna rol de la pestaña Usuarios).
 const PERMISOS = {
@@ -145,6 +146,8 @@ function doGet(e) {
   try {
     const p = e.parameter || {};
     if (p.r === 'ping' || !p.r) return json_({ ok: true, servicio: 'Pitazo Clubs', version: VERSION_API });
+    // Consulta liviana para "tiempo real": no abre ninguna planilla, solo lee una propiedad.
+    if (p.r === 'cambios') return json_({ ok: true, data: marca_(String(p.club || '').toLowerCase()) });
     if (p.r === 'clubes') {  // portada de Pitazo Clubs
       return json_({ ok: true, data: clubes_().filter(c => String(c.activo || 'SI') !== 'NO').map(c => ({ slug: c.slug, nombre: c.nombre, ciudad: c.ciudad || '', escudo: c.escudo || '', color1: c.color1 || '' })) });
     }
@@ -194,6 +197,7 @@ function accion_(club, b) {
       const s = st(), id = socioDeToken_(club.slug, b.socio_token), d = b.datos || {};
       if (d.comprobante && /^data:/.test(d.comprobante)) d.comprobante = guardarArchivo_(club, d.comprobante, 'comprobante-' + id, s, false);
       MOTOR.informarPago(s, id, d);
+      marcar_(club.slug);
       return limpio_(MOTOR.vistaSocio(s, id));
     });
     // ----- entradas (web pública, sin login: se accede con el link id + código) -----
@@ -209,6 +213,7 @@ function accion_(club, b) {
       let comp = b.comprobante;
       if (comp && /^data:/.test(comp)) comp = guardarArchivo_(club, comp, 'entrada-' + b.id, s, false);
       const e = MOTOR.informarEntrada(s, b.id, b.codigo, comp, b.medio);
+      marcar_(club.slug);
       return limpio_(MOTOR.vistaEntrada(s, e, true));
     });
     case 'socio_entrada': return conLock_(() => {
@@ -221,7 +226,9 @@ function accion_(club, b) {
     case 'panel_acceso': return conLock_(() => {
       const s = st(), ses = sesion_(club, b.token, s);
       permitir_(ses.usuario, 'validarAcceso', {});
-      return limpio_(MOTOR.validarAcceso(s, b.leido, b.lugar, b.cuantas));
+      const r = MOTOR.validarAcceso(s, b.leido, b.lugar, b.cuantas);
+      marcar_(club.slug);  // las otras puertas y el carnet se enteran del ingreso
+      return limpio_(r);
     });
     case 'panel_sesion': return { usuario: sesion_(club, b.token, st()).usuario };
     case 'panel_datos': {
@@ -248,6 +255,7 @@ function op_(club, s, op, a, quien) {
     case 'guardar': return MOTOR.guardar(s, a.tabla, a.fila || {}, quien);
     case 'borrar': return MOTOR.borrar(s, a.tabla, a.id);
     case 'eliminarSocio': return MOTOR.eliminarSocio(s, a.id);
+    case 'eliminarPartido': return MOTOR.eliminarPartido(s, a.id);
     case 'guardarConfig': {
       const c = Object.assign({}, a.cambios || {});
       ['mp_access_token', 'gemini', 'secreto'].forEach(k => delete c[k]);
@@ -404,7 +412,10 @@ function conLock_(fn) {
   try { return fn(); } finally { l.releaseLock(); }
 }
 function version_(slug) { return PropertiesService.getScriptProperties().getProperty('v_' + slug) || '0'; }
-function tocar_(slug) { PropertiesService.getScriptProperties().setProperty('v_' + slug, String(Date.now())); }
+// v_: versión de los datos públicos (invalida la caché de ?r=publico). m_: cualquier cambio (para el "tiempo real").
+function tocar_(slug) { const t = String(Date.now()); PropertiesService.getScriptProperties().setProperties({ ['v_' + slug]: t, ['m_' + slug]: t }); }
+function marcar_(slug) { PropertiesService.getScriptProperties().setProperty('m_' + slug, String(Date.now())); }
+function marca_(slug) { return PropertiesService.getScriptProperties().getProperty('m_' + slug) || '0'; }
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
 // ---------- alta de clubes (sin tocar el código) ----------

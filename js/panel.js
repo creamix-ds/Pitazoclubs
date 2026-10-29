@@ -20,7 +20,7 @@ window.PC = window.PC || {};
   async function op(nombre, args, okMsj) {
     try {
       const r = await DB.op(nombre, args);
-      DATA = r.datos;
+      DATA = DB.guardarPanel(r.datos);
       if (okMsj) u.aviso(typeof okMsj === 'function' ? okMsj(r.res) : okMsj, 'ok');
       return r.res;
     } catch (err) { u.aviso(err.message, 'mal'); throw err; }
@@ -42,12 +42,31 @@ window.PC = window.PC || {};
     document.body.classList.add('en-panel');
     SECCION = seccion || 'inicio';
     if (!DB.panelActivo()) return login();
+    PC.vivo.on('panel', () => { if (/^#\/panel/.test(location.hash) && DB.panelActivo() && DATA) recargar(); });
     if (!DATA) {
+      const guardado = DB.panelGuardado();
+      if (guardado) { // al instante con la última copia de esta sesión, y se actualiza por detrás
+        DATA = guardado; USUARIO = USUARIO || DATA._usuario;
+        marco(extra); return recargar();
+      }
       main().innerHTML = '<div class="login"><div class="tarjeta"><p class="cargando">Cargando el panel…</p></div></div>';
-      try { DATA = await DB.panelDatos(); if (!USUARIO) USUARIO = DATA._usuario || (DB.demo ? { nombre: 'Tesorería (demo)', email: 'demo' } : { nombre: '' }); }
+      try { DATA = DB.guardarPanel(await DB.panelDatos()); if (!USUARIO) USUARIO = DATA._usuario || (DB.demo ? { nombre: 'Tesorería (demo)', email: 'demo' } : { nombre: '' }); }
       catch (err) { DB.panelSalir(); DATA = null; return login(err.message); }
     }
     marco(extra);
+  }
+  // Trae las tablas de nuevo (lo llama el "tiempo real") y repinta si cambió algo,
+  // salvo que haya un diálogo abierto, se esté escribiendo o se esté escaneando.
+  async function recargar() {
+    try {
+      const d = await DB.panelDatos();
+      const cambio = JSON.stringify(d) !== JSON.stringify(DATA);
+      DATA = DB.guardarPanel(d); USUARIO = d._usuario || USUARIO;
+      const dlg = document.getElementById('dialogo');
+      if (cambio && /^#\/panel/.test(location.hash) && SECCION !== 'acceso' && !(dlg && dlg.open) && !PC.ocupado()) marco();
+    } catch (err) {
+      if (/Sesión vencida|Volvé a ingresar/.test(err.message)) { DB.panelSalir(); DATA = null; login('Tu sesión de Google venció. Volvé a ingresar.'); }
+    }
   }
 
   function login(msj) {
@@ -630,42 +649,64 @@ window.PC = window.PC || {};
     };
     d.querySelector('#be').oninput = pintar; pintar();
   }
+  // El rival sale de los partidos pendientes del club en Pitazo Final (no se escribe a mano).
   async function editarPartido(id) {
     const p = id ? tabla('Partidos').find(x => x.id === id) : { estado: 'Venta', precio_general: '', precio_socio: '' };
     const c = cfg();
-    let prox = [];
-    if (!id && c.pitazo_club_id) { try { await PZ.cargar(c.pitazo_club_id, c.pitazo_liga_id || 'L01'); prox = PZ.partidosDelClub(c.pitazo_club_id).filter(x => !PZ.resultado(x).jugado && PZ.fechaDe(x) >= u.hoy()); } catch (x) {} }
-    const etq = x => { const v = PZ.paraClub(x, c.pitazo_club_id); return `${u.corta(PZ.fechaDe(x))} · ${v.lado === 'local' ? 'vs' : 'en cancha de'} ${PZ.nombreEquipo(v.rival)}`; };
+    let pend = [], errPz = '';
+    if (!c.pitazo_club_id) errPz = 'Vinculá el club con Pitazo Final en Ajustes para elegir el partido.';
+    else {
+      try {
+        await PZ.cargar(c.pitazo_club_id, c.pitazo_liga_id || 'L01');
+        const usados = new Set(tabla('Partidos').filter(x => x.id !== id).map(x => x.pitazo_partido_id).filter(Boolean));
+        pend = PZ.partidosDelClub(c.pitazo_club_id).filter(x => !PZ.resultado(x).jugado && !usados.has(x.id) && (!PZ.fechaDe(x) || PZ.fechaDe(x) >= u.hoy()));
+      } catch (x) { errPz = 'No se pudo leer Pitazo Final: ' + x.message; }
+    }
+    const etq = x => { const v = PZ.paraClub(x, c.pitazo_club_id), t = PZ.torneo(x.torneo_id), f = PZ.fechaDe(x);
+      return `${f ? u.corta(f) : 'Fecha a confirmar'} · ${v.lado === 'local' ? 'vs' : 'en cancha de'} ${PZ.nombreEquipo(v.rival)}${x.fase ? ' · ' + x.fase : x.fecha_nro ? ' · fecha ' + x.fecha_nro : ''}${t ? ' · ' + t.nombre : ''}`; };
+    const elegir = !id ? `<label class="campo"><span>Partido (de Pitazo Final)</span><select id="pz-p" required>
+        <option value="">— Elegí el partido —</option>${pend.map(x => `<option value="${e(x.id)}">${e(etq(x))}</option>`).join('')}</select>
+        <small>${errPz ? e(errPz) : pend.length ? 'Son los partidos que le quedan por jugar al club. El rival, la fecha y el torneo salen de ahí.' : 'Pitazo Final no tiene partidos pendientes para el club.'}</small></label>`
+      : `<div class="tarjeta" style="background:#FAF9F7;padding:12px"><b>vs ${e(p.rival)}</b><div class="chico">${e(p.torneo || '')}${p.pitazo_partido_id ? ' · de Pitazo Final' : ''}</div></div>`;
     const d = dialogo(id ? 'Editar partido' : 'Partido con entradas', `
-      ${prox.length ? `<label class="campo" style="margin-bottom:12px"><span>Traer de Pitazo Final <small>(opcional)</small></span><select id="pz-p"><option value="">— Elegí un partido —</option>${prox.map(x => `<option value="${e(x.id)}">${e(etq(x))}</option>`).join('')}</select></label>` : ''}
       <form class="form" id="f-partido">
-        <div class="form__fila"><label class="campo"><span>Rival</span><input name="rival" value="${e(p.rival)}" required></label><label class="campo"><span>Torneo</span><input name="torneo" value="${e(p.torneo)}"></label></div>
+        ${elegir}
+        <input type="hidden" name="rival" value="${e(p.rival)}"><input type="hidden" name="torneo" value="${e(p.torneo)}"><input type="hidden" name="pitazo_partido_id" value="${e(p.pitazo_partido_id)}">
         <div class="form__fila"><label class="campo"><span>Fecha</span><input name="fecha" type="date" value="${e(u.iso(p.fecha))}" required></label><label class="campo"><span>Hora</span><input name="hora" type="time" value="${e(p.hora)}"></label></div>
         <label class="campo"><span>Cancha</span><input name="lugar" value="${e(p.lugar)}" placeholder="Cancha del club"></label>
         <div class="form__fila"><label class="campo"><span>Precio general</span><input name="precio_general" inputmode="numeric" value="${e(p.precio_general)}" required></label><label class="campo"><span>Precio socio al día</span><input name="precio_socio" inputmode="numeric" value="${e(p.precio_socio)}" placeholder="0 = gratis"></label></div>
         <div class="form__fila"><label class="campo"><span>Cupo <small>(vacío = sin límite)</small></span><input name="cupo" inputmode="numeric" value="${e(p.cupo)}"></label>
           <label class="campo"><span>Venta</span><select name="estado">${[['Venta', 'Abierta'], ['Cerrado', 'Cerrada'], ['Suspendido', 'Suspendido']].map(([k, n]) => `<option value="${k}" ${k === (p.estado || 'Venta') ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>
-        <input type="hidden" name="pitazo_partido_id" value="${e(p.pitazo_partido_id)}">
         <div id="f-error"></div>
-        <div style="display:flex;gap:8px;justify-content:space-between"><button class="boton" type="submit">Guardar</button>${id ? '<button class="boton boton--gris" type="button" id="borrar-p">Borrar</button>' : ''}</div>
+        <div style="display:flex;gap:8px;justify-content:space-between"><button class="boton" type="submit" ${!id && !pend.length ? 'disabled' : ''}>Guardar</button>${id ? '<button class="boton boton--gris" type="button" id="borrar-p" style="color:var(--mal)">Eliminar partido</button>' : ''}</div>
       </form>`);
     const f = d.querySelector('#f-partido');
     const sel = d.querySelector('#pz-p');
     if (sel) sel.onchange = () => {
-      const x = prox.find(y => y.id === sel.value); if (!x) return;
+      const x = pend.find(y => y.id === sel.value);
+      if (!x) { f.rival.value = ''; f.pitazo_partido_id.value = ''; return; }
       const v = PZ.paraClub(x, c.pitazo_club_id), t = PZ.torneo(x.torneo_id);
-      f.rival.value = PZ.nombreEquipo(v.rival); f.fecha.value = PZ.fechaDe(x); f.hora.value = M.txt(x.hora).slice(0, 5);
-      f.torneo.value = t ? t.nombre : ''; f.lugar.value = x.cancha || ''; f.pitazo_partido_id.value = x.id;
+      f.rival.value = PZ.nombreEquipo(v.rival); f.torneo.value = t ? t.nombre : ''; f.pitazo_partido_id.value = x.id;
+      f.fecha.value = PZ.fechaDe(x) || ''; f.hora.value = M.txt(x.hora).slice(0, 5);
+      f.lugar.value = x.cancha || (v.lado === 'local' ? 'Cancha de ' + (c.nombre_corto || c.nombre) : 'Cancha de ' + PZ.nombreEquipo(v.rival));
     };
     f.onsubmit = async ev => {
       ev.preventDefault();
+      if (!id && !f.pitazo_partido_id.value) { f.querySelector('#f-error').innerHTML = '<div class="error">Elegí el partido de la lista.</div>'; return; }
       const fila = Object.fromEntries(new FormData(f).entries());
       if (id) fila.id = id;
       try { await op('guardar', { tabla: 'Partidos', fila }, 'Partido guardado'); cerrar(); marco(); }
       catch (x) { f.querySelector('#f-error').innerHTML = `<div class="error">${e(x.message)}</div>`; }
     };
     const br = d.querySelector('#borrar-p');
-    if (br) br.onclick = async () => { if (confirm('¿Borrar el partido?')) { try { await op('borrar', { tabla: 'Partidos', id }, 'Partido borrado'); cerrar(); marco(); } catch (x) {} } };
+    if (br) br.onclick = async () => {
+      const n = tabla('Entradas').filter(x => x.partido_id === id).length;
+      if (!n) { if (confirm('¿Eliminar el partido vs ' + p.rival + '?')) { try { await op('eliminarPartido', { id }, 'Partido eliminado'); cerrar(); marco(); } catch (x) {} } return; }
+      const escrito = prompt(`El partido vs ${p.rival} tiene ${n} ${n === 1 ? 'entrada' : 'entradas'}. Se borran también y sus QR dejan de servir. No se puede deshacer.\n\nPara confirmar, escribí ELIMINAR:`);
+      if (escrito === null) return;
+      if (escrito.trim().toUpperCase() !== 'ELIMINAR') return u.aviso('No se eliminó: tenías que escribir ELIMINAR.', 'mal');
+      try { await op('eliminarPartido', { id }, r => `Partido vs ${r.rival} eliminado (${r.entradas} entradas borradas)`); cerrar(); marco(); } catch (x) {}
+    };
   }
   // Venta en la puerta o en la secretaría: queda paga en el momento.
   function venderEntrada(pid) {

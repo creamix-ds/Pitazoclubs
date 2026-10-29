@@ -78,11 +78,15 @@ window.PC = window.PC || {};
   const CLAVE = 'pc_demo_' + SLUG + '_v1';
   let BD = null;
   function guardarDemo() {
-    try { localStorage.setItem(CLAVE, JSON.stringify(BD)); }
+    try { localStorage.setItem(CLAVE, JSON.stringify(BD)); MARCA_BD = String(Date.now()); localStorage.setItem(CLAVE + '_marca', MARCA_BD); }
     catch (e) { u.aviso('El navegador no tiene más lugar para la demo. Usá "Reiniciar demo".', 'mal'); }
   }
+  let MARCA_BD = null;
   async function cargarDemo() {
-    if (BD) return;
+    // Se relee si otra pestaña cambió los datos (así la demo también se actualiza "en vivo").
+    const m = localStorage.getItem(CLAVE + '_marca');
+    if (BD && m === MARCA_BD) return;
+    MARCA_BD = m;
     try { BD = JSON.parse(localStorage.getItem(CLAVE)); } catch (e) { BD = null; }
     if (!BD) {
       const r = await fetch(RAIZ + 'data/demo-' + SLUG + '.json', { cache: 'no-cache' });
@@ -107,6 +111,7 @@ window.PC = window.PC || {};
     const res = await fetch(CFG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
     const j = await res.json();
     if (!j.ok) throw new Error(j.error || 'No se pudo completar.');
+    if (!/_vista$|_ver$|_datos$|_sesion$/.test(accion)) PC.vivo && PC.vivo.propio();
     return j.data;
   }
   async function get(r) {
@@ -124,8 +129,22 @@ window.PC = window.PC || {};
     });
   }
 
+  // Copias guardadas en el celular: la página se muestra al instante con la última copia
+  // y se actualiza por detrás.
+  const copiaLocal = {
+    leer(k, sesion) { try { return JSON.parse((sesion ? sessionStorage : localStorage).getItem(k)); } catch (e) { return null; } },
+    guardar(k, v, sesion) { try { (sesion ? sessionStorage : localStorage).setItem(k, JSON.stringify(v)); } catch (e) {} },
+    borrar(k) { try { localStorage.removeItem(k); sessionStorage.removeItem(k); } catch (e) {} }
+  };
+  PC.copia = copiaLocal;
+
   const DB = {
     demo: DEMO, slug: SLUG,
+    /** Marca del último cambio en los datos del club (consulta liviana). */
+    async marca() {
+      if (DEMO) return localStorage.getItem(CLAVE + '_marca') || '0';
+      return get('cambios');
+    },
     reiniciarDemo() { localStorage.removeItem(CLAVE); sessionStorage.removeItem('pc_socio_demo'); BD = null; },
 
     async publico() {
@@ -142,6 +161,8 @@ window.PC = window.PC || {};
     solicitud: d => DEMO ? local(() => M.solicitud(store, d)) : post('solicitud', { datos: d }),
 
     // ----- socio -----
+    vistaGuardada: () => DEMO ? null : copiaLocal.leer('pc_vista_' + SLUG),
+    guardarVista(v) { if (!DEMO && v) copiaLocal.guardar('pc_vista_' + SLUG, v); return v; },
     async socioIngresar(dni, pin) {
       if (DEMO) return local(() => { const s = M.ingresarSocio(store, dni, pin); sessionStorage.setItem('pc_socio_demo', s.id); return M.vistaSocio(store, s.id); });
       const r = await post('socio_ingresar', { dni, pin });
@@ -163,7 +184,7 @@ window.PC = window.PC || {};
       if (DEMO) return local(() => { M.informarPago(store, sessionStorage.getItem('pc_socio_demo'), d); return M.vistaSocio(store, sessionStorage.getItem('pc_socio_demo')); });
       return post('socio_informar', { datos: d });
     },
-    socioSalir() { sessionStorage.removeItem('pc_socio_demo'); localStorage.removeItem('pc_socio_' + SLUG); },
+    socioSalir() { sessionStorage.removeItem('pc_socio_demo'); localStorage.removeItem('pc_socio_' + SLUG); copiaLocal.borrar('pc_vista_' + SLUG); },
     /** Entrada con precio de socio (para él y su grupo familiar). Devuelve { entrada, vista }. */
     socioEntrada(partido_id, cantidad) {
       if (DEMO) return local(() => { const id = sessionStorage.getItem('pc_socio_demo'); const e = M.comprarEntrada(store, { partido_id, cantidad }, id, false); return { entrada: M.vistaEntrada(store, e, true), vista: M.vistaSocio(store, id) }; });
@@ -205,7 +226,9 @@ window.PC = window.PC || {};
       try { return await post('panel_sesion'); } catch (e) { sessionStorage.removeItem('pc_token'); throw e; }
     },
     panelActivo: () => DEMO ? !!sessionStorage.getItem('pc_panel_demo') : !!sessionStorage.getItem('pc_token'),
-    panelSalir() { sessionStorage.removeItem('pc_panel_demo'); sessionStorage.removeItem('pc_token'); },
+    panelSalir() { sessionStorage.removeItem('pc_panel_demo'); sessionStorage.removeItem('pc_token'); copiaLocal.borrar('pc_panel_' + SLUG); },
+    panelGuardado: () => DEMO ? null : copiaLocal.leer('pc_panel_' + SLUG, true),
+    guardarPanel(d) { if (!DEMO && d) copiaLocal.guardar('pc_panel_' + SLUG, d, true); return d; },
     async panelDatos() {
       if (DEMO) { await cargarDemo(); return copia(BD); }
       return post('panel_datos');
@@ -220,6 +243,7 @@ window.PC = window.PC || {};
         guardar: () => M.guardar(store, args.tabla, args.fila, quien),
         borrar: () => M.borrar(store, args.tabla, args.id),
         eliminarSocio: () => M.eliminarSocio(store, args.id),
+        eliminarPartido: () => M.eliminarPartido(store, args.id),
         guardarConfig: () => M.guardarConfig(store, args.cambios),
         generarCuotas: () => M.generarCuotas(store, args.periodo),
         registrarPago: () => M.registrarPago(store, args.pago, quien),
@@ -239,7 +263,7 @@ window.PC = window.PC || {};
       };
       if (!ops[nombre]) throw new Error('Operación desconocida: ' + nombre);
       const res = ops[nombre]();
-      guardarDemo();
+      guardarDemo(); PC.vivo.propio();
       return { res: copia(res === undefined ? null : res), datos: copia(BD) };
     }
   };
@@ -264,7 +288,9 @@ window.PC = window.PC || {};
     async cargar(clubId, ligaId) {
       if (this.datos && this.datos._club === clubId) return this.datos;
       let d = null;
-      if (CFG.PITAZO_API) {
+      // Copia de menos de 10 minutos: se usa directo (Pitazo Final tarda varios segundos en responder).
+      try { const c = JSON.parse(localStorage.getItem(PZ_CACHE + ligaId)); if (c && Date.now() - c.f < 6e5) { d = c.d; this.origen = 'Datos de Pitazo Final'; } } catch (e) {}
+      if (!d && CFG.PITAZO_API) {
         try {
           const [base, liga] = await Promise.all([pzGet('base'), pzGet('liga', { id: ligaId })]);
           d = {
@@ -402,4 +428,37 @@ window.PC = window.PC || {};
     urlClub: clubId => CFG.PITAZO_WEB + '#/club/' + clubId
   };
   PC.PZ = PZ;
+
+  // ---------- "tiempo real" ----------
+  // Cada 15 s (solo con la pestaña a la vista) pregunta si cambió algo en el club. Si cambió,
+  // avisa a la pantalla abierta (carnet, entrada, panel o web) para que se actualice sola.
+  PC.vivo = (function () {
+    const subs = new Map();
+    let ultima = null, timer = null, ignorar = false, enCurso = false;
+    async function tick() {
+      if (enCurso || document.visibilityState !== 'visible' || !subs.size) return;
+      enCurso = true;
+      try {
+        const m = String(await DB.marca());
+        if (ultima !== null && m !== ultima && !ignorar) subs.forEach(f => { Promise.resolve().then(f).catch(() => {}); });
+        ultima = m; ignorar = false;
+      } catch (e) { /* sin conexión: se reintenta en el próximo ciclo */ }
+      enCurso = false;
+    }
+    function arrancar() {
+      if (timer) return;
+      timer = setInterval(tick, 15000);
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') tick(); });
+      tick();
+    }
+    return {
+      on(k, f) { subs.set(k, f); arrancar(); },
+      off(k) { subs.delete(k); },
+      // Un cambio hecho desde esta pantalla: no hace falta volver a pedir los datos.
+      propio() { ignorar = true; },
+      tick
+    };
+  })();
+  // No interrumpir si la persona está escribiendo o eligiendo un archivo.
+  PC.ocupado = () => { const a = document.activeElement; return !!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'radio') || !!document.querySelector('dialog[open] form'); };
 })();

@@ -20,14 +20,29 @@ window.PC = window.PC || {};
     return 'mal';
   }
 
+  const enSocio = () => /^#\/socio/.test(location.hash);
   async function ver(tab) {
     PESTANA = tab || PESTANA || 'carnet';
     if (!DB.socioActivo()) return ingreso();
+    PC.vivo.on('socio', () => { if (enSocio() && DB.socioActivo()) refrescar(); });
     if (!VISTA) {
+      const guardada = DB.vistaGuardada();
+      if (guardada) { VISTA = guardada; pintar(); return refrescar(); } // al instante con la última copia
       main().innerHTML = '<section class="seccion contenedor"><p class="cargando">Cargando tu carnet…</p></section>';
       try { VISTA = await DB.socioVista(); } catch (err) { DB.socioSalir(); VISTA = null; return ingreso(err.message); }
     }
     pintar();
+  }
+  // Trae la vista actualizada y repinta solo si cambió algo (y la persona no está en medio de algo).
+  async function refrescar() {
+    try {
+      const v = await DB.socioVista();
+      const cambio = JSON.stringify(v) !== JSON.stringify(VISTA);
+      VISTA = v;
+      if (cambio && enSocio() && !PC.ocupado() && !COMPROBANTE) pintar();
+    } catch (err) {
+      if (/Sesión vencida/.test(err.message)) { DB.socioSalir(); VISTA = null; if (enSocio()) ingreso(err.message); }
+    }
   }
 
   function ingreso(msj) {
@@ -91,6 +106,7 @@ window.PC = window.PC || {};
 
   function pintar() {
     const v = VISTA, s = v.socio;
+    DB.guardarVista(v);
     const pend = v.cuotas.filter(c => c.estado === 'Pendiente');
     const tk = v.tickets || { entradas: [], partidos: [] };
     const tabs = [['carnet', 'Carnet'], ['cuenta', pend.length ? `Cuotas (${pend.length})` : 'Cuotas'], ['pagos', 'Mis pagos']];

@@ -66,8 +66,12 @@ window.PC = window.PC || {};
   async function arrancar() {
     if (!PC.SLUG) return portada();
     try {
-      const pub = await DB.publico();
-      PC.ctx = { pub, cfg: pub.config || {}, clubId: (pub.config || {}).pitazo_club_id };
+      // Con una copia guardada la web aparece al instante; los datos nuevos llegan por detrás.
+      const guardado = DB.demo ? null : PC.copia.leer('pc_pub_' + PC.SLUG);
+      const pub = guardado || await DB.publico();
+      ponerCtx(pub);
+      if (guardado) actualizarPublico();
+      PC.vivo.on('publico', actualizarPublico);
     } catch (err) {
       document.getElementById('contenido').innerHTML = `<section class="seccion contenedor"><div class="error">No se pudo cargar el club: ${u.esc(err.message)}</div><p style="margin-top:12px"><a href="${u.esc(PC.RAIZ)}">Ver todos los clubes</a></p></section>`;
       return;
@@ -84,6 +88,20 @@ window.PC = window.PC || {};
     boton.onclick = () => { const a = nav.classList.toggle('abierto'); boton.setAttribute('aria-expanded', a); };
     window.addEventListener('hashchange', ruta);
     ruta();
+  }
+
+  function ponerCtx(pub) { PC.ctx = { pub, cfg: pub.config || {}, clubId: (pub.config || {}).pitazo_club_id }; }
+  // Páginas públicas que se repintan solas cuando cambian los datos (no formularios ni carnet/panel).
+  const REPINTAR = ['', 'futbol', 'noticias', 'noticia', 'club', 'entradas'];
+  async function actualizarPublico() {
+    let pub;
+    try { pub = await DB.publico(); } catch (e) { return; }
+    if (JSON.stringify(pub) === JSON.stringify(PC.ctx.pub)) return;
+    ponerCtx(pub);
+    PC.aplicarMarca();
+    document.getElementById('nav-entradas').hidden = !(pub.partidos || []).length;
+    const p0 = location.hash.replace(/^#\/?/, '').split(/[/?]/)[0];
+    if (REPINTAR.includes(p0) && !PC.ocupado() && !document.querySelector('#f-gral')) { const y = window.scrollY; a11y.ultimo = p0; ruta(); window.scrollTo(0, y); }
   }
 
   function ruta() {

@@ -83,9 +83,21 @@ window.PC = window.PC || {};
   // ---------- #/entrada/ID-CODIGO ----------
   async function entrada(token) {
     const [id, codigo] = String(token || '').split('-');
+    const k = 'pc_ent_' + DB.slug + '_' + id, guardada = DB.demo ? null : PC.copia.leer(k);
+    const enEsta = () => location.hash.indexOf('#/entrada/' + id) === 0;
+    // Tiempo real: si el club confirma el pago (o se escanea), la entrada se actualiza sola.
+    PC.vivo.on('entrada', async () => {
+      if (!enEsta() || COMP || PC.ocupado()) return;
+      try { const nv = await DB.entradaVer(id, codigo); PC.copia.guardar(k, nv); pintarEntrada(nv); } catch (x) {}
+    });
+    if (guardada && guardada.entrada && guardada.entrada.codigo === codigo) {
+      pintarEntrada(guardada);
+      DB.entradaVer(id, codigo).then(nv => { PC.copia.guardar(k, nv); if (enEsta() && !COMP && JSON.stringify(nv) !== JSON.stringify(guardada)) pintarEntrada(nv); }).catch(() => {});
+      return;
+    }
     main().innerHTML = '<section class="seccion contenedor" style="max-width:520px"><p class="cargando">Buscando tu entrada…</p></section>';
     let v;
-    try { v = await DB.entradaVer(id, codigo); } catch (err) {
+    try { v = await DB.entradaVer(id, codigo); PC.copia.guardar(k, v); } catch (err) {
       main().innerHTML = `<section class="seccion contenedor" style="max-width:520px"><div class="error">${e(err.message)}</div><p style="margin-top:12px"><a href="#/entradas">Ver las entradas a la venta</a></p></section>`; return;
     }
     DB.recordarEntrada(v.entrada);
@@ -102,6 +114,7 @@ window.PC = window.PC || {};
         <button class="boton boton--gris boton--chico" id="actualizar">Actualizar</button></div></div>
       ${v.entrada.cantidad > 1 && v.qr ? '<p class="chico" style="text-align:center;margin-top:12px">En la entrada se escanea este QR una vez por persona (o todos juntos).</p>' : ''}
     </section>`;
+    if (!DB.demo) PC.copia.guardar('pc_ent_' + DB.slug + '_' + v.entrada.id, v);
     conectarPago(document.getElementById('pago'), v, pintarEntrada);
     document.getElementById('copiar-link').onclick = () => u.copiar(link);
     document.getElementById('actualizar').onclick = () => entrada(v.entrada.id + '-' + v.entrada.codigo);
