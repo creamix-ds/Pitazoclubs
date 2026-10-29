@@ -10,7 +10,7 @@ window.CONFIG = {
   API_URL: '',
 
   PITAZO_API: 'https://script.google.com/macros/s/AKfycbwnQBffCUCtToLGMtJupEoCZcxLfyj_gW059hGNc5oJ6ZcPi8-__mtDr9NZyNvuj8RN/exec',
-  PITAZO_WEB: 'https://creamix-ds.github.io/ligasdefutbol/',
+  PITAZO_WEB: 'https://creamix-ds.github.io/pitazo-final/',
 
   // ID de cliente OAuth de Google para el panel (#/panel). Puede ser el mismo de Pitazo
   // Final o uno nuevo; el mismo valor va en backend/base.gs.
