@@ -20,6 +20,15 @@ window.PC = window.PC || {};
     r.setProperty('--sobre-c1', (R * 299 + G * 587 + B * 114) / 1000 > 165 ? '#1A1A1A' : '#fff');
     document.title = c.nombre_corto || c.nombre || 'Pitazo Clubs';
     document.querySelector('meta[name=theme-color]').setAttribute('content', c.color1 || '#D7261E');
+    // Ícono de la pestaña (y del acceso directo en el celular): el escudo del club.
+    if (c.escudo) {
+      const esc = window.MOTOR.url(c.escudo, true);
+      [['icon', ''], ['apple-touch-icon', '']].forEach(([rel]) => {
+        let l = document.querySelector(`link[rel="${rel}"]`);
+        if (!l) { l = document.createElement('link'); l.rel = rel; document.head.appendChild(l); }
+        l.removeAttribute('type'); l.href = esc;
+      });
+    }
     document.getElementById('marca-nombre').textContent = c.nombre_corto || c.nombre || 'Pitazo Clubs';
     document.getElementById('marca-escudo').outerHTML = PC.escudo(c.escudo, c.nombre, 'escudo--chico').replace('class="escudo', 'id="marca-escudo" class="escudo');
     document.getElementById('pie-nombre').textContent = c.nombre || '';
