@@ -45,7 +45,7 @@
 const GOOGLE_CLIENT_ID = '513742201235-79a1b7tnk46vt8db28e8t54rqbqhrk3p.apps.googleusercontent.com'; // proyecto de Google Cloud pitazoclubs
 const CARPETA_ARCHIVOS = 'Pitazo Clubs - archivos';
 const SOCIO_DIAS = 60;                // cuánto dura la sesión del socio en el celular
-const VERSION_API = '29oct-i';        // aparece en ?r=ping: sirve para saber qué código está publicado
+const VERSION_API = '29oct-j';        // aparece en ?r=ping: sirve para saber qué código está publicado
 
 // Qué puede hacer cada rol del panel (columna rol de la pestaña Usuarios).
 const PERMISOS = {
@@ -354,7 +354,7 @@ const PORTAL_BASE = {
   titulo: 'La web y los socios\nde tu club, en un solo lugar',
   subtitulo: 'Página propia, carnet digital, cuotas, entradas, control de acceso y resultados de la liga actualizados solos.',
   color1: '#18181B', color_boton: '#F05A1A', color_boton_texto: '#18181B', color_fondo: '#FAFAF7',
-  whatsapp: '', instagram: '', email: '',
+  whatsapp: '', instagram: 'creamixds', email: '',
   rasgos: ['Web del club: Noticias, actividades, cuota social y formulario para asociarse, con los colores y el escudo del club.',
     'Resultados solos: Fixture, tabla, fase final y goleadores salen de Pitazo Final: no se carga nada dos veces.',
     'Carnet digital: Cada socio tiene su carnet con QR en el celular y ve si está al día.',

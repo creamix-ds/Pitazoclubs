@@ -62,9 +62,15 @@ window.PC = window.PC || {};
     PC.temaPortal(c);
     document.getElementById('pie-nombre').textContent = c.nombre || 'Pitazo Clubs';
     document.getElementById('pie-ciudad').textContent = 'La web y la gestión de socios de tu club.';
-    document.querySelector('.pie__links').innerHTML = `<a href="${e(CFG.PITAZO_WEB)}" target="_blank" rel="noopener">Pitazo Final</a>${c.instagram ? `<a href="${e('https://instagram.com/' + c.instagram.replace(/^@|.*instagram\.com\//g, '').replace(/\/$/, ''))}" target="_blank" rel="noopener">Instagram</a>` : ''}${c.email ? `<a href="mailto:${e(c.email)}">${e(c.email)}</a>` : ''}<a href="#/admin">Administrar</a>`;
+    document.querySelector('.pie__links').innerHTML = `<a href="${e(CFG.PITAZO_WEB)}" target="_blank" rel="noopener">Pitazo Final</a>${c.instagram ? `<a href="${e('https://instagram.com/' + String(c.instagram).trim().replace(/^@|^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/[/?].*$/, ''))}" target="_blank" rel="noopener">Instagram</a>` : ''}${c.email ? `<a href="mailto:${e(c.email)}">${e(c.email)}</a>` : ''}<a href="#/admin">Administrar</a>`;
     const tel = c.whatsapp || CFG.WHATSAPP_VENTAS;
     const wa = tel ? u.wa(tel, 'Hola! Quiero la web y la gestión de socios para mi club.') : '';
+    const ig = String(c.instagram || '').trim().replace(/^@|^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/[/?].*$/, '');
+    const contactos = [
+      wa && `<a class="boton boton--blanco" href="${e(wa)}" target="_blank" rel="noopener">WhatsApp</a>`,
+      ig && `<a class="boton boton--borde" href="${e('https://instagram.com/' + ig)}" target="_blank" rel="noopener">Instagram @${e(ig)}</a>`,
+      c.email && `<a class="boton boton--borde" href="mailto:${e(c.email)}">${e(c.email)}</a>`
+    ].filter(Boolean);
     const rasgos = String(c.rasgos || '').split('\n').map(x => x.trim()).filter(Boolean).map(x => { const k = x.indexOf(':'); return k > 0 ? [x.slice(0, k).trim(), x.slice(k + 1).trim()] : [x, '']; });
     document.getElementById('contenido').innerHTML = `
       <section class="hero"><div class="contenedor hero__grilla" style="grid-template-columns:1fr">
@@ -79,7 +85,10 @@ window.PC = window.PC || {};
       </section>
       ${rasgos.length ? `<section class="seccion contenedor" style="padding-top:0"><div class="seccion__titulo"><h2>Qué incluye</h2></div>
         <div class="grilla-3">${rasgos.map(([t, d]) => `<div class="tarjeta actividad"><h3>${e(t)}</h3>${d ? `<p class="chico" style="margin:6px 0 0">${e(d)}</p>` : ''}</div>`).join('')}</div>
-      </section>` : ''}`;
+      </section>` : ''}
+      ${contactos.length ? `<section class="seccion contenedor" style="padding-top:0" id="contacto"><div class="banda">
+        <div><h2>¿Querés la web para tu club?</h2><p style="opacity:.85;margin:6px 0 0">Escribinos y te mostramos cómo queda con los colores y el escudo de tu club.</p></div>
+        <div class="contacto-portal">${contactos.join('')}</div></div></section>` : ''}`;
   }
   async function portada() {
     document.body.classList.add('en-portada');

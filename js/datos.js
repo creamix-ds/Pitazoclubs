@@ -144,7 +144,7 @@ window.PC = window.PC || {};
     titulo: 'La web y los socios\nde tu club, en un solo lugar',
     subtitulo: 'Página propia, carnet digital, cuotas, entradas, control de acceso y resultados de la liga actualizados solos.',
     color1: '#18181B', color_boton: '#F05A1A', color_boton_texto: '#18181B', color_fondo: '#FAFAF7',
-    whatsapp: '', instagram: '', email: '',
+    whatsapp: '', instagram: 'creamixds', email: '',
     rasgos: ['Web del club: Noticias, actividades, cuota social y formulario para asociarse, con los colores y el escudo del club.',
       'Resultados solos: Fixture, tabla, fase final y goleadores salen de Pitazo Final: no se carga nada dos veces.',
       'Carnet digital: Cada socio tiene su carnet con QR en el celular y ve si está al día.',

@@ -424,7 +424,9 @@ body.en-portada .hero::after { background: linear-gradient(90deg, var(--c1) 0%, 
 
 /* Portada de Pitazo Clubs: colores que se eligen en #/admin */
 body.en-portada .hero { color: var(--sobre-c1, #fff); }
-body.en-portada .hero .boton--blanco { background: var(--boton, #fff); color: var(--boton-texto, var(--c1-osc)); }
+body.en-portada .hero .boton--blanco, body.en-portada .banda .boton--blanco { background: var(--boton, #fff); color: var(--boton-texto, var(--c1-osc)); }
+.contacto-portal { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 700px) { .contacto-portal { justify-content: flex-start; } }
 body.en-portada .hero .boton--blanco:hover { filter: brightness(1.06); }
 body.en-portada .tarjeta.actividad { border-top: 4px solid var(--boton, var(--c1)); }
 
@@ -435,3 +437,5 @@ body.en-portada .tarjeta.actividad { border-top: 4px solid var(--boton, var(--c1
 .paleta__muestra { display: flex; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,0,0,.08); }
 .paleta__muestra i { width: 16px; height: 26px; display: block; }
 .muestra-portal { margin-top: 4px; box-shadow: var(--sombra); border-radius: 10px; }
+body.en-portada .banda::after { background: var(--boton, var(--c1)); }
+.contacto-portal { margin-right: 40px; } .contacto-portal .boton { margin-right: 0; } @media (max-width: 640px) { .contacto-portal { margin-right: 0; } }
