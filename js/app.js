@@ -53,9 +53,22 @@ window.PC = window.PC || {};
     document.querySelector('meta[name=theme-color]').setAttribute('content', c.color1 || '#D7261E');
     const logo = c.logo ? window.MOTOR.url(c.logo, true) : PC.RAIZ + 'img/icono.svg';
     let l = document.querySelector('link[rel="icon"]'); if (l) { l.removeAttribute('type'); l.href = logo; }
+    if (!c.logo) { // apple-touch-icon: el ícono de Pitazo Clubs
+      let a = document.querySelector('link[rel="apple-touch-icon"]');
+      if (!a) { a = document.createElement('link'); a.rel = 'apple-touch-icon'; document.head.appendChild(a); }
+      a.href = PC.RAIZ + 'img/icono-app.png';
+    }
     document.title = c.nombre || 'Pitazo Clubs';
-    document.getElementById('marca-nombre').textContent = c.nombre || 'Pitazo Clubs';
-    document.getElementById('marca-escudo').outerHTML = PC.escudo(logo, c.nombre || 'Pitazo Clubs', 'escudo--chico').replace('class="escudo', 'id="marca-escudo" class="escudo');
+    const marca = document.getElementById('marca');
+    if (!c.logo && (c.nombre || 'Pitazo Clubs') === 'Pitazo Clubs') {
+      // Logo completo de Pitazo Clubs en la barra (texto blanco u oscuro según el color de la barra).
+      const claro = getComputedStyle(document.documentElement).getPropertyValue('--sobre-c1').trim() !== '#fff';
+      marca.innerHTML = `<img class="marca__logo" src="${PC.RAIZ}img/${claro ? 'logo' : 'logo-blanco'}.svg" alt="Pitazo Clubs" height="34"><span class="escudo escudo--chico" id="marca-escudo" style="display:none"></span><span class="marca__nombre" id="marca-nombre" style="display:none"></span>`;
+    } else {
+      if (!document.getElementById('marca-nombre') || marca.querySelector('.marca__logo')) marca.innerHTML = '<span class="escudo escudo--chico" id="marca-escudo"></span><span class="marca__nombre" id="marca-nombre"></span>';
+      document.getElementById('marca-nombre').textContent = c.nombre || 'Pitazo Clubs';
+      document.getElementById('marca-escudo').outerHTML = PC.escudo(logo, c.nombre || 'Pitazo Clubs', 'escudo--chico').replace('class="escudo', 'id="marca-escudo" class="escudo');
+    }
   };
   function pintarPortada(p) {
     const e = u.esc, CFG = window.CONFIG, c = p.config, clubes = p.clubes || [];
@@ -106,7 +119,14 @@ window.PC = window.PC || {};
     portada();
   }
 
+  // "Hecho con Pitazo Clubs" en el pie de todas las webs, con el logo.
+  function firma() {
+    const f = document.querySelector('.pie__firma');
+    if (f) f.innerHTML = `<span>Hecho con</span><a class="pie__logo" href="${PC.RAIZ}" aria-label="Pitazo Clubs"><img src="${PC.RAIZ}img/logo-blanco.svg" alt="Pitazo Clubs" height="20"></a><span>· creamixds</span>`;
+  }
+
   async function arrancar() {
+    firma();
     if (!PC.SLUG) { window.addEventListener('hashchange', rutaRaiz); return rutaRaiz(); }
     try {
       // Con una copia guardada la web aparece al instante; los datos nuevos llegan por detrás.

@@ -439,3 +439,11 @@ body.en-portada .tarjeta.actividad { border-top: 4px solid var(--boton, var(--c1
 .muestra-portal { margin-top: 4px; box-shadow: var(--sombra); border-radius: 10px; }
 body.en-portada .banda::after { background: var(--boton, var(--c1)); }
 .contacto-portal { margin-right: 40px; } .contacto-portal .boton { margin-right: 0; } @media (max-width: 640px) { .contacto-portal { margin-right: 0; } }
+
+/* Logo de Pitazo Clubs */
+.marca__logo { display: block; height: 34px; width: auto; }
+@media (max-width: 420px) { .marca__logo { height: 28px; } }
+.pie__firma { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.pie__logo { display: inline-flex; opacity: .85; }
+.pie__logo:hover { opacity: 1; }
+.pie__logo img { display: block; height: 20px; width: auto; }

@@ -40,8 +40,8 @@ window.PC = window.PC || {};
 
   function login(msj) {
     main().innerHTML = `<div class="login"><div class="tarjeta">
-      ${PC.escudo(PC.RAIZ + 'img/icono.svg', 'Pitazo Clubs', 'escudo--partido')}
-      <h2 style="margin:12px 0 4px">Panel de Pitazo Clubs</h2>
+      <img src="${PC.RAIZ}img/logo.svg" alt="Pitazo Clubs" height="46" style="display:block;margin:0 auto">
+      <h2 style="margin:14px 0 4px">Panel</h2>
       <p class="chico">Portada, colores, logo y clubes.</p>
       <div id="login-zona" style="margin:18px 0 6px;display:grid;justify-items:center;gap:10px"></div>
       ${msj ? `<div class="error">${e(msj)}</div>` : ''}
