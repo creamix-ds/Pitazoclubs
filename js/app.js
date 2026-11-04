@@ -128,6 +128,9 @@ window.PC = window.PC || {};
   async function arrancar() {
     firma();
     if (!PC.SLUG) { window.addEventListener('hashchange', rutaRaiz); return rutaRaiz(); }
+    // Botón para volver a Pitazo Clubs: en la web de cualquier club, también si no carga.
+    const volver = document.getElementById('volver-pc');
+    if (volver) { volver.href = PC.RAIZ; volver.querySelector('img').src = PC.RAIZ + 'img/icono.svg'; volver.hidden = false; }
     try {
       // Con una copia guardada la web aparece al instante; los datos nuevos llegan por detrás.
       const guardado = DB.demo ? null : PC.copia.leer('pc_pub_' + PC.SLUG);

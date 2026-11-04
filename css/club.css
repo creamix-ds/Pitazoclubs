@@ -447,3 +447,12 @@ body.en-portada .banda::after { background: var(--boton, var(--c1)); }
 .pie__logo { display: inline-flex; opacity: .85; }
 .pie__logo:hover { opacity: 1; }
 .pie__logo img { display: block; height: 20px; width: auto; }
+
+/* Botón "Pitazo Clubs" en la barra de cada club: vuelve a la portada */
+.volver-pc { display: inline-flex; align-items: center; gap: 7px; flex: none; margin-left: 10px; padding: 5px 12px 5px 6px; border-radius: 999px; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.28); color: inherit; text-decoration: none; font-weight: 700; font-size: .82rem; white-space: nowrap; }
+@media (min-width: 761px) { .cabeza__barra .nav { margin-left: auto; } }
+.volver-pc:hover { background: rgba(255,255,255,.24); }
+.volver-pc[hidden] { display: none; }
+.volver-pc img { width: 24px; height: 24px; display: block; background: #fff; border-radius: 50%; padding: 2px; }
+@media (max-width: 1080px) { .volver-pc span { display: none; } .volver-pc { padding: 4px; } }
+@media (max-width: 760px) { .volver-pc { order: 2; margin-left: auto; } .menu-boton { order: 3; } }
