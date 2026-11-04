@@ -456,3 +456,19 @@ body.en-portada .banda::after { background: var(--boton, var(--c1)); }
 .volver-pc img { width: 24px; height: 24px; display: block; background: #fff; border-radius: 50%; padding: 2px; }
 @media (max-width: 1080px) { .volver-pc span { display: none; } .volver-pc { padding: 4px; } }
 @media (max-width: 760px) { .volver-pc { order: 2; margin-left: auto; } .menu-boton { order: 3; } }
+
+/* Pedidos de web (portada → panel de Pitazo Clubs) */
+.contador { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: #F05A1A; color: #fff; font-size: .78rem; font-weight: 800; vertical-align: 2px; margin-left: 4px; }
+.pedido { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--linea); }
+.pedido--resuelto { opacity: .75; }
+.pedido__club { display: flex; gap: 12px; align-items: flex-start; min-width: 0; flex: 1 1 380px; }
+.pedido__club .chico { line-height: 1.45; }
+.pedido__msj { margin: 6px 0 0; padding: 8px 10px; background: var(--fondo); border-radius: 8px; font-size: .9rem; white-space: pre-line; }
+.pedido__acciones { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.trampa { position: absolute !important; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.pz-lista { display: grid; gap: 4px; margin: -4px 0 4px; }
+.pz-lista:empty { display: none; }
+.pz-item { display: flex; gap: 10px; align-items: center; text-align: left; background: #fff; border: 1px solid var(--linea); border-radius: 10px; padding: 8px 10px; cursor: pointer; font: inherit; color: inherit; }
+.pz-item:hover, .pz-item:focus-visible { border-color: var(--tinta-2); }
+.pz-elegido { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--ok-suave, #E7F5EC); margin-bottom: 4px; }
+.pz-elegido__txt { flex: 1; min-width: 0; }

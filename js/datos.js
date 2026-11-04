@@ -155,7 +155,8 @@ window.PC = window.PC || {};
   };
   const demoPortal = () => Object.assign({}, PORTAL_BASE, copiaLocal.leer('pc_portal_demo') || {});
   const demoClubes = () => copiaLocal.leer('pc_portal_demo_clubes') || (CFG.CLUBES || []).map(c => Object.assign({ activo: 'SI', planilla_id: '' }, c));
-  const datosDemoPortal = () => ({ usuario: { email: 'demo@pitazoclubs', nombre: 'Admin (demo)' }, config: demoPortal(), clubes: demoClubes() });
+  const demoPedidos = () => copiaLocal.leer('pc_portal_demo_pedidos') || [];
+  const datosDemoPortal = () => ({ usuario: { email: 'demo@pitazoclubs', nombre: 'Admin (demo)' }, config: demoPortal(), clubes: demoClubes(), pedidos: demoPedidos().slice().reverse() });
 
   const DB = {
     demo: DEMO, slug: SLUG, PORTAL_BASE,
@@ -196,6 +197,23 @@ window.PC = window.PC || {};
       l.push(Object.assign({}, datos, { slug, activo: 'SI', planilla_id: '(demo)', escudo: M.url(datos.escudo, true) }));
       copiaLocal.guardar('pc_portal_demo_clubes', l); return datosDemoPortal();
     },
+    /** Formulario "Quiero la web de mi club" de la portada: queda pendiente en el panel. */
+    async pedirWeb(datos) {
+      if (!DEMO) return post('pedido_web', { datos });
+      if (!datos.nombre || !datos.ciudad) throw new Error('Completá el nombre del club y la localidad.');
+      const l = demoPedidos();
+      l.push(Object.assign({}, datos, { id: 'PW' + Date.now().toString(36).toUpperCase(), fecha: new Date().toISOString().slice(0, 16).replace('T', ' '), estado: 'pendiente', escudo: M.url(datos.escudo, true) }));
+      copiaLocal.guardar('pc_portal_demo_pedidos', l); return { ok: true };
+    },
+    /** Panel: aprobar (crea el club con "datos") o rechazar un pedido. */
+    async adminPedido(id, decision, datos, motivo) {
+      if (!DEMO) return post('portal_pedido', { id, decision, datos, motivo });
+      const l = demoPedidos(), x = l.find(p => p.id === id);
+      if (!x || x.estado !== 'pendiente') throw new Error('Ese pedido ya fue resuelto.');
+      if (decision === 'aprobar') { await this.adminCrearClub(Object.assign({}, x, datos)); x.club_slug = String(datos.slug || x.slug); }
+      Object.assign(x, { estado: decision === 'aprobar' ? 'aprobado' : 'rechazado', motivo: motivo || '', resuelto_fecha: new Date().toISOString().slice(0, 16).replace('T', ' ') });
+      copiaLocal.guardar('pc_portal_demo_pedidos', l); return datosDemoPortal();
+    },
     /** Marca del último cambio en los datos del club (consulta liviana). */
     async marca() {
       if (DEMO) return localStorage.getItem(CLAVE + '_marca') || '0';
@@ -207,7 +225,11 @@ window.PC = window.PC || {};
       if (DEMO) { await cargarDemo(); return copia(M.publico(store)); }
       const k = 'pc_pub_' + SLUG;
       try { const d = await get('publico'); localStorage.setItem(k, JSON.stringify(d)); return d; }
-      catch (e) { const c = localStorage.getItem(k); if (c) return JSON.parse(c); throw e; }
+      catch (e) {
+        // Club pausado: no se muestra la copia guardada.
+        if (/^PAUSADO:/.test(e.message)) { copiaLocal.borrar(k); throw e; }
+        const c = localStorage.getItem(k); if (c) return JSON.parse(c); throw e;
+      }
     },
     /** Clubes para la portada de Pitazo Clubs. */
     async clubes() {
@@ -340,6 +362,16 @@ window.PC = window.PC || {};
 
   const PZ = {
     datos: null, origen: '',
+    /** Todos los clubes y ligas de Pitazo Final (para buscar el club en el formulario de pedido). */
+    async clubesTodos() {
+      const k = PZ_CACHE + 'base';
+      try { const c = JSON.parse(localStorage.getItem(k)); if (c && Date.now() - c.f < 36e5) return c.d; } catch (e) {}
+      if (!CFG.PITAZO_API) return { clubes: [], ligas: [] };
+      const b = await pzGet('base');
+      const d = { clubes: (b.clubes || []).map(c => ({ id: c.id, liga_id: c.liga_id, nombre: c.nombre, ciudad: c.ciudad || '', escudo: c.escudo || '' })), ligas: (b.ligas || []).map(l => ({ id: l.id, nombre: l.nombre })) };
+      try { localStorage.setItem(k, JSON.stringify({ f: Date.now(), d })); } catch (e) {}
+      return d;
+    },
     /** Trae de Pitazo Final la liga del club. Si no responde, usa la última copia o la del sitio. */
     async cargar(clubId, ligaId) {
       if (this.datos && this.datos._club === clubId) return this.datos;

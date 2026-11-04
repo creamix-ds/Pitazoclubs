@@ -846,12 +846,15 @@ if (typeof module !== 'undefined') module.exports = MOTOR;
  * Portada de Pitazo Clubs (sin club; la edita el dueño de esta planilla o un email de Portal > admins):
  * GET  ?r=portal                                  textos, colores y logo de la portada + clubes
  * POST portal_sesion | portal_datos | portal_guardar {cambios} | portal_club {datos} | portal_crear_club {datos}
+ *      portal_pedido {id, decision: 'aprobar'|'rechazar', datos, motivo}
+ * POST pedido_web {datos}   (público) formulario "Quiero la web de mi club" de la portada: queda en la
+ *      pestaña Pedidos de la planilla central y se aprueba o rechaza desde el panel (#/admin).
  */
 
 const GOOGLE_CLIENT_ID = '513742201235-79a1b7tnk46vt8db28e8t54rqbqhrk3p.apps.googleusercontent.com'; // proyecto de Google Cloud pitazoclubs
 const CARPETA_ARCHIVOS = 'Pitazo Clubs - archivos';
 const SOCIO_DIAS = 60;                // cuánto dura la sesión del socio en el celular
-const VERSION_API = '29oct-j';        // aparece en ?r=ping: sirve para saber qué código está publicado
+const VERSION_API = '04nov-a';        // aparece en ?r=ping: sirve para saber qué código está publicado
 
 // Qué puede hacer cada rol del panel (columna rol de la pestaña Usuarios).
 const PERMISOS = {
@@ -872,8 +875,10 @@ function clubes_() {
   return v.filter(r => r[0]).map(r => { const o = {}; h.forEach((k, i) => o[k] = r[i]); return o; });
 }
 function clubPorSlug_(slug) {
-  const c = clubes_().filter(x => String(x.slug).toLowerCase() === String(slug || '').toLowerCase() && String(x.activo || 'SI') !== 'NO')[0];
+  const c = clubes_().filter(x => String(x.slug).toLowerCase() === String(slug || '').toLowerCase())[0];
   if (!c) throw new Error('No existe el club "' + slug + '".');
+  // Club pausado desde el panel de Pitazo Clubs (por ejemplo, cuota atrasada): no abre su web ni su panel.
+  if (String(c.activo || 'SI') === 'NO') throw new Error('PAUSADO: La web de ' + c.nombre + ' está pausada por el momento.');
   return c;
 }
 
@@ -985,6 +990,7 @@ function doPost(e) {
   try {
     const b = JSON.parse(e.postData.contents || '{}');
     if (/^portal_/.test(String(b.accion))) return json_({ ok: true, data: accionPortal_(b) });
+    if (b.accion === 'pedido_web') return json_({ ok: true, data: conLock_(() => pedirWeb_(b.datos || {})) });
     const club = clubPorSlug_(b.club);
     const r = accion_(club, b);
     return json_({ ok: true, data: r });
@@ -1196,7 +1202,7 @@ function sesionPortal_(token) {
 }
 function datosPortal_(usuario) {
   return {
-    usuario: usuario, config: portal_(true),
+    usuario: usuario, config: portal_(true), pedidos: pedidos_().reverse().slice(0, 100),
     clubes: clubes_().map(c => ({ slug: c.slug, nombre: c.nombre, ciudad: c.ciudad || '', escudo: c.escudo || '', color1: c.color1 || '', activo: String(c.activo || 'SI'),
       planilla_id: c.planilla_id || '', pitazo_club_id: c.pitazo_club_id || '', pitazo_liga_id: c.pitazo_liga_id || '', admin_email: c.admin_email || '' }))
   };
@@ -1227,18 +1233,99 @@ function accionPortal_(b) {
       return datosPortal_(u);
     });
     case 'portal_crear_club': return conLock_(() => {
-      const d = Object.assign({}, b.datos || {});
-      d.slug = String(d.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
-      if (!d.slug || !String(d.nombre || '').trim()) throw new Error('Completá el nombre y la dirección (slug) del club.');
-      if (['js', 'css', 'img', 'data', 'backend', 'herramientas', 'admin', 'www'].indexOf(d.slug) >= 0) throw new Error('"' + d.slug + '" está reservado: elegí otra dirección para el club.');
-      if (d.escudo) d.escudo = MOTOR.url(d.escudo, true);
-      crearClub(d);
+      crearClubPortal_(b.datos || {});
+      tocar_('portal');
+      return datosPortal_(u);
+    });
+    case 'portal_pedido': return conLock_(() => {   // aprobar (crea el club) o rechazar un pedido de la portada
+      const { sh, h } = hojaPedidos_();
+      const filas = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, h.length).getValues() : [];
+      const i = filas.findIndex(r => String(r[h.indexOf('id')]) === String(b.id || ''));
+      if (i < 0) throw new Error('No existe ese pedido.');
+      const ped = {}; h.forEach((k, j) => ped[k] = filas[i][j]);
+      if (String(ped.estado) !== 'pendiente') throw new Error('Ese pedido ya fue ' + ped.estado + '.');
+      const poner = (k, v) => sh.getRange(i + 2, h.indexOf(k) + 1).setValue(v);
+      if (b.decision === 'aprobar') {
+        const d = Object.assign({}, ped, b.datos || {});
+        const slug = crearClubPortal_(d);
+        poner('estado', 'aprobado'); poner('club_slug', slug);
+      } else if (b.decision === 'rechazar') {
+        poner('estado', 'rechazado'); poner('motivo', String(b.motivo || '').trim().slice(0, 300));
+      } else throw new Error('Decisión desconocida.');
+      poner('resuelto_por', u.email); poner('resuelto_fecha', ahora_());
       tocar_('portal');
       return datosPortal_(u);
     });
   }
   throw new Error('Acción desconocida');
 }
+function crearClubPortal_(datos) {
+  const d = {};
+  COLUMNAS_CLUBES.forEach(k => { if (datos[k] !== undefined && datos[k] !== null) d[k] = String(datos[k]).trim(); });
+  d.slug = String(d.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+  if (!d.slug || !d.nombre) throw new Error('Completá el nombre y la dirección (slug) del club.');
+  if (['js', 'css', 'img', 'data', 'backend', 'herramientas', 'admin', 'www', 'pedir'].indexOf(d.slug) >= 0) throw new Error('"' + d.slug + '" está reservado: elegí otra dirección para el club.');
+  if (d.escudo) d.escudo = MOTOR.url(d.escudo, true);
+  crearClub(d);
+  return d.slug;
+}
+
+// ---------- pedidos de web (formulario "Quiero la web de mi club" de la portada) ----------
+const COLUMNAS_PEDIDOS = ['id', 'fecha', 'estado', 'nombre', 'nombre_corto', 'ciudad', 'slug', 'escudo', 'color1', 'color2', 'pitazo_club_id', 'pitazo_liga_id',
+  'contacto_nombre', 'contacto_cargo', 'contacto_whatsapp', 'admin_email', 'mensaje', 'resuelto_por', 'resuelto_fecha', 'motivo', 'club_slug'];
+function ahora_() { return Utilities.formatDate(new Date(), 'America/Argentina/Buenos_Aires', 'yyyy-MM-dd HH:mm'); }
+function hojaPedidos_() {
+  let sh = central_().getSheetByName('Pedidos');
+  if (!sh) { sh = central_().insertSheet('Pedidos'); sh.setFrozenRows(1); }
+  const h = sh.getLastColumn() ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String) : [];
+  COLUMNAS_PEDIDOS.forEach(k => { if (h.indexOf(k) < 0) { h.push(k); sh.getRange(1, h.length).setValue(k).setFontWeight('bold'); } });
+  return { sh: sh, h: h };
+}
+function pedidos_() {
+  const sh = central_().getSheetByName('Pedidos');
+  if (!sh || sh.getLastRow() < 2) return [];
+  const v = sh.getDataRange().getValues(), h = v.shift().map(String);
+  return v.filter(r => r[0]).map(r => { const o = {}; h.forEach((k, i) => o[k] = r[i] instanceof Date ? Utilities.formatDate(r[i], 'America/Argentina/Buenos_Aires', 'yyyy-MM-dd HH:mm') : String(r[i] === undefined ? '' : r[i])); return o; });
+}
+function pedirWeb_(d) {
+  if (String(d.web2 || '').trim()) return { ok: true };   // campo trampa: lo completan solo los robots
+  const s = (k, n) => String(d[k] == null ? '' : d[k]).trim().replace(/[\u0000-\u001f]/g, ' ').slice(0, n || 120);
+  const p = {
+    nombre: s('nombre'), nombre_corto: s('nombre_corto', 60), ciudad: s('ciudad', 80),
+    slug: s('slug', 40).toLowerCase().replace(/[^a-z0-9-]/g, ''),
+    escudo: d.escudo ? MOTOR.url(s('escudo', 400), true) : '',
+    color1: /^#[0-9a-f]{6}$/i.test(d.color1) ? d.color1 : '#D7261E', color2: /^#[0-9a-f]{6}$/i.test(d.color2) ? d.color2 : '#FFFFFF',
+    pitazo_club_id: /^CL\d+$/i.test(s('pitazo_club_id')) ? s('pitazo_club_id').toUpperCase() : '',
+    pitazo_liga_id: /^L\d+$/i.test(s('pitazo_liga_id')) ? s('pitazo_liga_id').toUpperCase() : '',
+    contacto_nombre: s('contacto_nombre', 80), contacto_cargo: s('contacto_cargo', 60), contacto_whatsapp: s('contacto_whatsapp', 30).replace(/[^\d+ ]/g, ''),
+    admin_email: s('admin_email').toLowerCase(), mensaje: String(d.mensaje || '').trim().slice(0, 1000)
+  };
+  if (!p.nombre || !p.ciudad) throw new Error('Completá el nombre del club y la localidad.');
+  if (!p.contacto_nombre || p.contacto_whatsapp.replace(/\D/g, '').length < 8) throw new Error('Completá tu nombre y un WhatsApp para avisarte.');
+  if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(p.admin_email)) throw new Error('El email del administrador no es válido.');
+  // Uno cada 5 minutos por email, y no dos pedidos pendientes del mismo club.
+  const cache = CacheService.getScriptCache(), k = 'ped_' + p.admin_email.replace(/[^a-z0-9]/g, '');
+  if (cache.get(k)) throw new Error('Ya recibimos tu pedido hace un rato. Te vamos a escribir por WhatsApp.');
+  const norm = x => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+  if (pedidos_().some(x => x.estado === 'pendiente' && norm(x.nombre) === norm(p.nombre) && norm(x.ciudad) === norm(p.ciudad))) throw new Error('Ya hay un pedido pendiente para ' + p.nombre + '. Te vamos a escribir por WhatsApp.');
+  const { sh, h } = hojaPedidos_();
+  const fila = Object.assign({ id: 'PW' + Date.now().toString(36).toUpperCase(), fecha: ahora_(), estado: 'pendiente' }, p);
+  sh.appendRow(h.map(c => fila[c] === undefined ? '' : fila[c]));
+  sh.getRange(sh.getLastRow(), 1, 1, h.length).setNumberFormat('@');
+  cache.put(k, '1', 300);
+  // Aviso por mail a quienes manejan Pitazo Clubs (si se puede; si no, igual queda en el panel).
+  try {
+    let duenio = ''; try { duenio = String(central_().getOwner().getEmail() || ''); } catch (err) {}
+    const para = (duenio + ',' + (portal_(true).admins || '')).split(/[,;\s]+/).filter(Boolean).filter((m, i, a) => a.indexOf(m) === i).join(',');
+    if (para && MailApp.getRemainingDailyQuota() > 0) MailApp.sendEmail({
+      to: para, name: 'Pitazo Clubs', subject: 'Nuevo pedido de web: ' + p.nombre,
+      body: 'Club: ' + p.nombre + ' (' + p.ciudad + ')\nPide: ' + p.contacto_nombre + (p.contacto_cargo ? ', ' + p.contacto_cargo : '') + '\nWhatsApp: ' + p.contacto_whatsapp +
+        '\nAdministrador: ' + p.admin_email + (p.mensaje ? '\n\n' + p.mensaje : '') + '\n\nAprobalo o rechazalo en el panel de Pitazo Clubs (Pedidos de web).'
+    });
+  } catch (err) { console.log('No se pudo avisar por mail: ' + err); }
+  return { ok: true, id: fila.id };
+}
+
 function secreto_() {
   const pr = PropertiesService.getScriptProperties();
   let s = pr.getProperty('SECRETO');

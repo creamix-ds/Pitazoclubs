@@ -80,7 +80,8 @@ window.PC = window.PC || {};
     const wa = tel ? u.wa(tel, 'Hola! Quiero la web y la gestión de socios para mi club.') : '';
     const ig = String(c.instagram || '').trim().replace(/^@|^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/[/?].*$/, '');
     const contactos = [
-      wa && `<a class="boton boton--blanco" href="${e(wa)}" target="_blank" rel="noopener">WhatsApp</a>`,
+      `<a class="boton boton--blanco" href="#/pedir">Pedir la web</a>`,
+      wa && `<a class="boton boton--borde" href="${e(wa)}" target="_blank" rel="noopener">WhatsApp</a>`,
       ig && `<a class="boton boton--borde" href="${e('https://instagram.com/' + ig)}" target="_blank" rel="noopener">Instagram @${e(ig)}</a>`,
       c.email && `<a class="boton boton--borde" href="mailto:${e(c.email)}">${e(c.email)}</a>`
     ].filter(Boolean);
@@ -90,7 +91,7 @@ window.PC = window.PC || {};
         <div>${c.kicker ? `<div class="hero__kicker">${e(c.kicker)}</div>` : ''}
           <h1>${e(c.titulo || '').replace(/\n/g, '<br>')}</h1>
           ${c.subtitulo ? `<p class="hero__sub" style="max-width:60ch">${e(c.subtitulo)}</p>` : ''}
-          <div class="hero__acciones">${wa ? `<a class="boton boton--blanco" href="${e(wa)}" target="_blank" rel="noopener">Quiero la web de mi club</a>` : ''}${clubes[0] ? `<a class="boton boton--borde" href="${e(PC.RAIZ + clubes[0].slug + '/')}">Ver un ejemplo</a>` : ''}</div></div>
+          <div class="hero__acciones"><a class="boton boton--blanco" href="#/pedir">Quiero la web de mi club</a>${clubes[0] ? `<a class="boton boton--borde" href="${e(PC.RAIZ + clubes[0].slug + '/')}">Ver un ejemplo</a>` : ''}</div></div>
       </div></section>
       <section class="seccion contenedor"><div class="seccion__titulo"><h2>Clubes</h2></div>
         <div class="grilla-3">${clubes.map(x => `<a class="tarjeta" href="${e(PC.RAIZ + x.slug + '/')}" style="display:flex;gap:14px;align-items:center;text-decoration:none;color:inherit;border-top:5px solid ${hexOk(x.color1) ? x.color1 : 'var(--c1)'}">
@@ -100,7 +101,7 @@ window.PC = window.PC || {};
         <div class="grilla-3">${rasgos.map(([t, d]) => `<div class="tarjeta actividad"><h3>${e(t)}</h3>${d ? `<p class="chico" style="margin:6px 0 0">${e(d)}</p>` : ''}</div>`).join('')}</div>
       </section>` : ''}
       ${contactos.length ? `<section class="seccion contenedor" style="padding-top:0" id="contacto"><div class="banda">
-        <div><h2>¿Querés la web para tu club?</h2><p style="opacity:.85;margin:6px 0 0">Escribinos y te mostramos cómo queda con los colores y el escudo de tu club.</p></div>
+        <div><h2>¿Querés la web para tu club?</h2><p style="opacity:.85;margin:6px 0 0">Completá el pedido con los datos del club y te avisamos cuando esté lista. ¿Dudas? Escribinos.</p></div>
         <div class="contacto-portal">${contactos.join('')}</div></div></section>` : ''}`;
   }
   async function portada() {
@@ -112,10 +113,19 @@ window.PC = window.PC || {};
     catch (err) { if (!guardada) pintarPortada({ config: DB.PORTAL_BASE, clubes: window.CONFIG.CLUBES || [] }); }
   }
   // En la raíz no hay club: portada o el panel de Pitazo Clubs (#/admin).
+  let enAdmin = false;
   function rutaRaiz() {
     const admin = /^#\/admin/.test(location.hash);
+    if (admin && !enAdmin) PC.admin.olvidar();
+    enAdmin = admin;
     document.body.classList.toggle('en-panel', admin);
     if (admin) return PC.admin.ver();
+    if (/^#\/pedir/.test(location.hash)) {
+      document.body.classList.add('en-portada');
+      document.getElementById('nav').style.display = 'none'; document.getElementById('menu-boton').style.display = 'none';
+      const g = DB.portalGuardado(); if (g) PC.temaPortal(g.config);
+      return PC.admin.pedir();
+    }
     portada();
   }
 
@@ -139,7 +149,13 @@ window.PC = window.PC || {};
       if (guardado) actualizarPublico();
       PC.vivo.on('publico', actualizarPublico);
     } catch (err) {
-      document.getElementById('contenido').innerHTML = `<section class="seccion contenedor"><div class="error">No se pudo cargar el club: ${u.esc(err.message)}</div><p style="margin-top:12px"><a href="${u.esc(PC.RAIZ)}">Ver todos los clubes</a></p></section>`;
+      // Club pausado desde el panel de Pitazo Clubs: aviso claro en vez de un error.
+      if (/^PAUSADO:/.test(err.message)) { document.getElementById('nav').style.display = 'none'; document.getElementById('menu-boton').style.display = 'none'; }
+      document.getElementById('contenido').innerHTML = /^PAUSADO:/.test(err.message)
+        ? `<section class="seccion contenedor" style="max-width:620px;text-align:center"><div class="tarjeta" style="padding:34px 24px">
+            <h1 style="margin:0 0 8px">Web pausada</h1><p style="margin:0 0 18px">${u.esc(err.message.replace(/^PAUSADO:\s*/, ''))} Si sos del club, comunicate con Pitazo Clubs para reactivarla.</p>
+            <a class="boton" href="${u.esc(PC.RAIZ)}">Ir a Pitazo Clubs</a></div></section>`
+        : `<section class="seccion contenedor"><div class="error">No se pudo cargar el club: ${u.esc(err.message)}</div><p style="margin-top:12px"><a href="${u.esc(PC.RAIZ)}">Ver todos los clubes</a></p></section>`;
       return;
     }
     PC.aplicarMarca();
@@ -161,7 +177,7 @@ window.PC = window.PC || {};
   const REPINTAR = ['', 'futbol', 'noticias', 'noticia', 'club', 'entradas'];
   async function actualizarPublico() {
     let pub;
-    try { pub = await DB.publico(); } catch (e) { return; }
+    try { pub = await DB.publico(); } catch (e) { if (/^PAUSADO:/.test(e.message)) location.reload(); return; }
     if (JSON.stringify(pub) === JSON.stringify(PC.ctx.pub)) return;
     ponerCtx(pub);
     PC.aplicarMarca();
